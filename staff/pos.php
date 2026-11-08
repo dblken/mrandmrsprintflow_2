@@ -4647,11 +4647,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         }
 
         function posNormalizeGuestDisplayName(value) {
-            return String(value || '')
-                .replace(/\p{N}/gu, '')
+            const normalized = String(value || '')
+                .replace(/[^\p{L}\p{M}\s]/gu, '')
                 .replace(/\s+/gu, ' ')
                 .replace(/^ /, '')
-                .slice(0, 50);
+                .replace(/(^| )(\p{L})/gu, function(match, separator, firstLetter) {
+                    return separator + firstLetter.toLocaleUpperCase();
+                });
+            return normalized.slice(0, 50);
         }
 
         function posConstrainGuestDisplayNameInput(input) {
@@ -4758,7 +4761,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 guestNameEl.maxLength = 50;
                 guestNameEl.addEventListener('beforeinput', function(event) {
                     if (event.inputType !== 'insertText' || event.isComposing || typeof event.data !== 'string' || event.data.length !== 1) return;
-                    if (/\p{N}/u.test(event.data)) {
+                    if (!/[\p{L}\p{M}]/u.test(event.data) && !/\s/u.test(event.data)) {
                         event.preventDefault();
                         return;
                     }

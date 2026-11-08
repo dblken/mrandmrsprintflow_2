@@ -119,6 +119,14 @@ function printflow_pos_validate_guest_display_name_input(?string $raw): void
         throw new RuntimeException('Customer name cannot contain numbers.', 400);
     }
 
+    $hasInvalidCharacter = preg_match('/[^\\p{L}\\p{M}\\s]/u', $name);
+    if ($hasInvalidCharacter === false) {
+        throw new RuntimeException('Please enter a valid customer name.', 400);
+    }
+    if ($hasInvalidCharacter === 1) {
+        throw new RuntimeException('Customer name can contain only letters and spaces.', 400);
+    }
+
     $hasInvalidSpacing = preg_match('/^\\s|\\s{2,}/u', $name);
     if ($hasInvalidSpacing === false) {
         throw new RuntimeException('Please enter a valid customer name.', 400);
