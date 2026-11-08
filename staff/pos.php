@@ -3275,7 +3275,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             </div>
                             <div class="pos-guest-name-wrap" id="pos-guest-name-wrap">
                                 <label for="pos-guest-name">Customer name</label>
-                                <input type="text" id="pos-guest-name" class="pos-guest-name-input" maxlength="120"
+                                <input type="text" id="pos-guest-name" class="pos-guest-name-input" maxlength="50"
                                     placeholder="Enter name for receipt (no account required)" autocomplete="name">
                             </div>
                         </div>
@@ -4646,9 +4646,33 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return $('#pos-customer').val() === 'guest';
         }
 
+        function posNormalizeGuestDisplayName(value) {
+            return String(value || '')
+                .replace(/\p{N}/gu, '')
+                .replace(/\s+/gu, ' ')
+                .replace(/^ /, '')
+                .slice(0, 50);
+        }
+
+        function posConstrainGuestDisplayNameInput(input) {
+            if (!input) return '';
+            const original = String(input.value || '');
+            const cursor = typeof input.selectionStart === 'number' ? input.selectionStart : original.length;
+            const normalized = posNormalizeGuestDisplayName(original);
+            if (normalized !== original) {
+                const normalizedBeforeCursor = posNormalizeGuestDisplayName(original.slice(0, cursor));
+                input.value = normalized;
+                if (document.activeElement === input && typeof input.setSelectionRange === 'function') {
+                    const nextCursor = Math.min(normalizedBeforeCursor.length, normalized.length);
+                    input.setSelectionRange(nextCursor, nextCursor);
+                }
+            }
+            return normalized;
+        }
+
         function getPosGuestDisplayName() {
             const el = document.getElementById('pos-guest-name');
-            return el ? String(el.value || '').trim() : '';
+            return el ? posConstrainGuestDisplayNameInput(el).trim() : '';
         }
 
         function togglePosGuestNameField() {
@@ -4731,7 +4755,29 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             const guestNameEl = document.getElementById('pos-guest-name');
             if (guestNameEl) {
-                guestNameEl.addEventListener('input', updateCheckoutState);
+                guestNameEl.maxLength = 50;
+                guestNameEl.addEventListener('beforeinput', function(event) {
+                    if (event.inputType !== 'insertText' || event.isComposing || typeof event.data !== 'string' || event.data.length !== 1) return;
+                    if (/\p{N}/u.test(event.data)) {
+                        event.preventDefault();
+                        return;
+                    }
+                    if (/\s/u.test(event.data)) {
+                        const start = typeof this.selectionStart === 'number' ? this.selectionStart : this.value.length;
+                        const end = typeof this.selectionEnd === 'number' ? this.selectionEnd : start;
+                        const before = this.value.slice(0, start);
+                        const after = this.value.slice(end);
+                        if (!before || /\s$/u.test(before) || /^\s/u.test(after)) event.preventDefault();
+                    }
+                });
+                guestNameEl.addEventListener('input', function(event) {
+                    if (!event.isComposing) posConstrainGuestDisplayNameInput(this);
+                    updateCheckoutState();
+                });
+                guestNameEl.addEventListener('compositionend', function() {
+                    posConstrainGuestDisplayNameInput(this);
+                    updateCheckoutState();
+                });
             }
 
             // Set default to guest
@@ -4803,7 +4849,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         if (state.guest_display_name) {
                             const guestNameInput = document.getElementById('pos-guest-name');
                             if (guestNameInput) {
-                                guestNameInput.value = state.guest_display_name;
+                                guestNameInput.value = posNormalizeGuestDisplayName(state.guest_display_name);
                             }
                         }
                         if (state.item_index !== undefined && state.updated_price !== undefined) {

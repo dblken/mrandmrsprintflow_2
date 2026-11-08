@@ -104,6 +104,42 @@ function printflow_pos_sanitize_guest_display_name(?string $raw): string
     return $name;
 }
 
+function printflow_pos_validate_guest_display_name_input(?string $raw): void
+{
+    $name = (string)$raw;
+    if ($name === '') {
+        return;
+    }
+
+    $hasNumber = preg_match('/\\p{N}/u', $name);
+    if ($hasNumber === false) {
+        throw new RuntimeException('Please enter a valid customer name.', 400);
+    }
+    if ($hasNumber === 1) {
+        throw new RuntimeException('Customer name cannot contain numbers.', 400);
+    }
+
+    $hasInvalidSpacing = preg_match('/^\\s|\\s{2,}/u', $name);
+    if ($hasInvalidSpacing === false) {
+        throw new RuntimeException('Please enter a valid customer name.', 400);
+    }
+    if ($hasInvalidSpacing === 1) {
+        throw new RuntimeException('Use only one space between words and do not start with a space.', 400);
+    }
+
+    if (function_exists('mb_strlen')) {
+        $length = mb_strlen($name, 'UTF-8');
+    } else {
+        $length = preg_match_all('/./us', $name, $matches);
+        if ($length === false) {
+            throw new RuntimeException('Please enter a valid customer name.', 400);
+        }
+    }
+    if ($length > 50) {
+        throw new RuntimeException('Customer name cannot exceed 50 characters.', 400);
+    }
+}
+
 /** @return array{first:string,last:string} */
 function printflow_pos_parse_display_name(string $raw): array
 {
@@ -221,7 +257,9 @@ function printflow_pos_resolve_checkout_customer_context(array $data): array
         return ['customer_id' => $customerId, 'pos_guest_display_name' => null, 'pos_guest_email' => null];
     }
 
-    $guestName = printflow_pos_sanitize_guest_display_name($data['guest_display_name'] ?? '');
+    $rawGuestName = (string)($data['guest_display_name'] ?? '');
+    printflow_pos_validate_guest_display_name_input($rawGuestName);
+    $guestName = printflow_pos_sanitize_guest_display_name($rawGuestName);
     $checkoutEmail = printflow_pos_normalize_customer_email($data['customer_email'] ?? '');
 
     if ($rawCustomer === 'guest') {
