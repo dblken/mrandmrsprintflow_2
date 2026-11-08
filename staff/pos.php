@@ -3711,9 +3711,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         function posCartItemQuantityHtml(item, index, isServiceLine) {
             const quantity = escapeHtml(String(item?.qty ?? ''));
             if (isServiceLine) {
-                return `<div class="pos-item-controls pos-item-controls-readonly"><span class="pos-qty-readonly" aria-label="Quantity">${quantity}</span></div>`;
+                return `<div class="pos-item-controls pos-item-controls-readonly"><span class="pos-qty-label">Quantity</span><span class="pos-qty-readonly" aria-label="Quantity">${quantity}</span></div>`;
             }
             return `<div class="pos-item-controls">
+                <span class="pos-qty-label">Quantity</span>
                 <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
                 <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${quantity}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
                 <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
@@ -8058,16 +8059,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 </div>
                 <div class="pos-cart-item-bottom">
                     <div class="pos-item-action">${priceHtml}</div>
-<<<<<<< HEAD
-                    <div class="pos-item-controls">
-                        <span class="pos-qty-label">Quantity</span>
-                        <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, -1)" aria-label="Decrease quantity">&minus;</button>
-                        <input class="pos-qty-val" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="64" autocomplete="off" value="${escapeHtml(String(item.qty))}" aria-label="Quantity" aria-describedby="pos-qty-warning-${index}" oninput="validateCartQuantityInput(${index}, this)" onblur="commitCartQuantityInput(${index}, this)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">
-                        <button type="button" class="pos-qty-btn" onclick="updateQtyByCartIndex(${index}, 1)" aria-label="Increase quantity">&plus;</button>
-                    </div>
-=======
                     ${posCartItemQuantityHtml(item, index, isServiceLine)}
->>>>>>> efd0c340e47393516c2532d76c10af2c61759c97
                     <div class="pos-item-total">${totalDisplay}</div>
                 </div>
                 <div class="pos-qty-warning" id="pos-qty-warning-${index}" role="status" aria-live="polite"></div>
