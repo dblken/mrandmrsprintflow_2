@@ -19,8 +19,8 @@ assert.match(pos, /posBindServiceStockValidation\(serviceId\)/, 'opening the Mug
 assert.match(pos, /scheduleValidation\(\)/, 'quantity typing and +/- revalidate Mug stock');
 assert.match(
   pos,
-  /Number\(serviceId\) !== 63\s*&&\s*!\(paperEarlyStock && paperDimsReady\)\s*&&\s*!plateTypeSelected\s*&&\s*!sintraThicknessSelected\) \{\s*posSetServiceStockState\(false, '', ''\);\s*return \{ valid: true, deferred: true \};/,
-  'incomplete-form deferral skips other services but permits early checks for Mugs, valid paper dimensions, and selected Plate or Sintraboard types'
+  /Number\(serviceId\) !== 63\s*&&\s*!\(paperEarlyStock && paperDimsReady\)\s*&&\s*!stickerLaminateReady\s*&&\s*!plateTypeSelected\s*&&\s*!sintraThicknessSelected\) \{\s*posSetServiceStockState\(false, '', ''\);\s*return \{ valid: true, deferred: true \};/,
+  'incomplete-form deferral permits early checks for Mugs, valid paper dimensions, sticker finish/size, and selected Plate or Sintraboard types'
 );
 
 const silence = fs.readFileSync(path.join(__dirname, 'pos_mugs_success_silence_test.js'), 'utf8');

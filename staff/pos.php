@@ -5808,7 +5808,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const stickerLaminateReady = Number(serviceId) === 36
                 && Object.values(serviceCustomization).some(value => {
                     const selected = String(value || '').trim();
-                    return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker Printed)\b/i.test(selected)
+                    return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker (?:Printed|Cut Out))\b/i.test(selected)
                         && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")\s*[x×*]\s*\d+(?:\.\d+)?/i.test(selected);
                 });
             const plateTypeRaw = String(

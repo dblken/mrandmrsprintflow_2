@@ -570,23 +570,41 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                     if (!$item) throw new RuntimeException('The selected Sticker/Decals laminate is unavailable. Contact an administrator.');
                     $rollWidthFt = printflow_pos_sticker_laminate_roll_width_ft($itemId, $item);
                     $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
-                    $rolls = array_values(array_filter(
-                        printflow_pos_sticker_laminate_filter_branch_rolls(
-                            printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
-                            $branchId
-                        ),
-                        static function (array $roll) use ($rollWidthFt): bool {
-                            $physicalWidth = (float)($roll['width_ft'] ?? 0);
-                            // Legacy rolls without a width inherit only their
-                            // exact item's configured width; conflicting widths fail closed.
-                            return $physicalWidth <= 0 || abs($physicalWidth - $rollWidthFt) <= 0.01;
-                        }
-                    ));
+                    $physicalRollValidation = printflow_pos_sticker_laminate_uses_physical_rolls($item);
+                    if ($physicalRollValidation) {
+                        $rolls = array_values(array_filter(
+                            printflow_pos_sticker_laminate_filter_branch_rolls(
+                                printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
+                                $branchId
+                            ),
+                            static function (array $roll) use ($rollWidthFt): bool {
+                                $physicalWidth = (float)($roll['width_ft'] ?? 0);
+                                // Legacy rolls without a width inherit only their
+                                // exact item's configured width; conflicting widths fail closed.
+                                return $physicalWidth <= 0 || abs($physicalWidth - $rollWidthFt) <= 0.01;
+                            }
+                        ));
+                    } else {
+                        // Standard FT inventory is ledger footage, not physical roll
+                        // rows. Model that branch's aggregate footage as one capacity
+                        // bin, while retaining the configured laminate width so every
+                        // sticker panel must still physically fit the material.
+                        $availableFt = max(0.0, (float)InventoryManager::getStockOnHand($itemId, $branchId));
+                        $rolls = $availableFt > 0 ? [[
+                            'id' => $itemId,
+                            'branch_id' => $branchId,
+                            'roll_code' => 'Branch FT stock',
+                            'width_ft' => $rollWidthFt,
+                            'remaining_length_ft' => $availableFt,
+                            'received_at' => '',
+                        ]] : [];
+                    }
                     $stickerLaminateItemIds[$itemId] = true;
                     $stickerLaminateRollsByItem[$itemId] = $rolls;
                     $stickerLaminatePlans[$lineIndex] = [
                         'item_id' => $itemId,
                         'plan' => $plan,
+                        'physical_roll_validation' => $physicalRollValidation,
                     ];
                     $tracked = true;
                 }
@@ -670,16 +688,20 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 'uom' => (string)($item['unit_of_measure'] ?? 'ft'),
                 'required' => $required,
                 'available' => $available,
-                'physical_roll_validation' => true,
+                'physical_roll_validation' => !empty($plansForItem) && (bool)reset($plansForItem)['physical_roll_validation'],
             ];
             $materials[] = $entry;
             if (empty($allocation['ok'])) {
                 $entry['out_of_stock'] = $available <= 0;
                 $entry['message'] = $available <= 0
                     ? $entry['name'] . ' is out of stock at this branch.'
-                    : 'Insufficient ' . $entry['name'] . ' stock for the selected dimensions and quantity. Available: '
+                    : 'Insufficient ' . $entry['name'] . ' stock for the selected dimensions and quantity. Required: '
+                        . rtrim(rtrim(number_format($required, 3, '.', ''), '0'), '.')
+                        . ' ft; available: '
                         . rtrim(rtrim(number_format($available, 3, '.', ''), '0'), '.')
-                        . ' ft across rolls, but the required panels do not fit the remaining roll lengths.';
+                        . ($entry['physical_roll_validation']
+                            ? ' ft across rolls, but the required panels do not fit the remaining roll lengths.'
+                            : ' ft in this branch.');
                 $issues[] = $entry;
             }
         }

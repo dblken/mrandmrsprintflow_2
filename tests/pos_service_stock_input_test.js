@@ -95,6 +95,7 @@ const finishOption = { name: 'finish', value: 'Matte', type: 'select-one', datas
 const sizesSelect = {
     tagName: 'SELECT', name: 'sizes', value: '', type: 'select-one', selectedIndex: 0,
     options: [], dataset: {},
+    matches(selector) { return selector === 'input, select, textarea'; },
     getAttribute(name) { return name === 'data-other-option' ? 'Others' : null; }
 };
 const radioDimension = {
@@ -377,8 +378,43 @@ for (const testCase of selectedDimensionCases) {
     assert.equal(request[2].pos_material_dimension_unit, testCase.unit,
         `service ${testCase.serviceId} sends the selected option's explicit unit`);
 }
+
+// Matte Cut Out is a mapped laminate finish too. Finish/size, quantity, and
+// branch edits must each recheck the current branch's laminate availability.
+elements['service-modal-overlay'].dataset.serviceId = '36';
+elements['service-modal-overlay'].dataset.materialDimensionFieldKey = 'dimensions';
+elements['service-modal-overlay'].dataset.materialDimensionUnit = 'ft';
+sizesSelect.name = 'dimensions';
+sizesSelect.value = 'Matte Sticker Printed (1ft X 2ft)';
+sizesSelect.options = [{ textContent: sizesSelect.value }];
+input.value = '1';
+branchField.value = '1';
+context.posBindServiceStockValidation(36);
+validations.shift(); // initial modal availability check
+sizesSelect.value = 'Matte Sticker Cut Out (1ft X 2ft)';
+sizesSelect.options = [{ textContent: sizesSelect.value }];
+fieldsBody.listeners.change({ target: sizesSelect });
+timers.shift()();
+let stickerRequest = validations.shift();
+assert.equal(stickerRequest[0], 36, 'Matte Cut Out revalidates through the service stock endpoint');
+assert.equal(stickerRequest[2].dimensions, 'Matte Sticker Cut Out (1ft X 2ft)', 'finish change sends the selected matte cut-out option');
+assert.equal(stickerRequest[2].branch_id, '1', 'sticker finish check is scoped to the current branch');
+input.value = '100';
+input.listeners.change();
+timers.shift()();
+stickerRequest = validations.shift();
+assert.equal(stickerRequest[1], '100', 'sticker quantity changes trigger demand revalidation');
+assert.equal(stickerRequest[2].dimensions, 'Matte Sticker Cut Out (1ft X 2ft)', 'quantity recheck retains the selected finish and dimensions');
+branchField.value = '4';
+fieldsBody.listeners.change({ target: branchField });
+timers.shift()();
+stickerRequest = validations.shift();
+assert.equal(stickerRequest[2].branch_id, '4', 'branch changes revalidate sticker laminate against the selected branch');
+assert.equal(stickerRequest[1], '100', 'branch recheck retains requested sticker quantity');
+
 plateHasDimensionControls = false;
 selectedPlateMaterial = { value: '2', dataset: { posMaterialId: '2' } };
+input.value = '1';
 elements['service-modal-overlay'].dataset.serviceId = '39';
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
 elements['service-modal-overlay'].dataset.materialDimensionUnit = '';
@@ -474,8 +510,8 @@ assert.deepEqual(validations.shift().slice(0, 2), [42, '4'], 'typed quantity val
 elements['service-modal-overlay'].dataset.materialDimensionFieldKey = '';
 sizesSelect.value = '';
 context.posBindServiceStockValidation(40);
-assert.equal(listenerCounts.input, 15, 'each service modal opening, including Sintraboard and Plate type cases, registers one delegated stock input handler');
-assert.equal(listenerCounts.change, 15, 'each service modal opening, including Sintraboard and Plate type cases, registers one delegated stock change handler');
+assert.equal(listenerCounts.input, 16, 'each service modal opening, including sticker finish, Sintraboard, and Plate type cases, registers one delegated stock input handler');
+assert.equal(listenerCounts.change, 16, 'each service modal opening, including sticker finish, Sintraboard, and Plate type cases, registers one delegated stock change handler');
 assert.equal(validationControllers[0].aborted, true, 'opening another service modal aborts the prior delegated validation listeners');
 assert.equal(listenerOptions.input.signal, listenerOptions.change.signal, 'input and change handlers share the current modal listener lifetime');
 const initialTarpaulinRequest = validations.shift();

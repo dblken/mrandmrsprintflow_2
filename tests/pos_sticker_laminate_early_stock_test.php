@@ -12,8 +12,9 @@ $assert = static function (bool $condition, string $message): void {
 
 $options = [
     'Glossy Sticker Printed (1ft X 2ft)',
-    'Glossy Sticker Cut Out (2ft X 2ft)',
+    'Glossy Sticker Cut Out (1ft X 2ft)',
     'Matte Sticker Printed (1ft X 2ft)',
+    'Matte Sticker Cut Out (1ft X 2ft)',
 ];
 $config = [[
     'field_key' => 'dimensions',
@@ -34,18 +35,21 @@ $assert(printflow_pos_sticker_laminate_item_for_finish($options[1]) === 20,
     'Glossy Sticker Cut Out maps only to Gloss Laminate item 20.');
 $assert(printflow_pos_sticker_laminate_item_for_finish($options[2]) === 21,
     'Matte Sticker Printed maps only to Matte Laminate item 21.');
-$assert(printflow_pos_sticker_laminate_item_for_finish('Matte Sticker Cut Out (1ft X 2ft)') === null,
-    'Unspecified matte cut-out behavior does not get an invented laminate mapping.');
+$assert(printflow_pos_sticker_laminate_item_for_finish($options[3]) === 21,
+    'Matte Sticker Cut Out maps only to Matte Laminate item 21.');
 
 $gloss = printflow_pos_sticker_laminate_selection($lineFor($options[0]), $config);
 $matte = printflow_pos_sticker_laminate_selection($lineFor($options[2], 3), $config);
 $cutout = printflow_pos_sticker_laminate_selection($lineFor($options[1], 2), $config);
+$matteCutout = printflow_pos_sticker_laminate_selection($lineFor($options[3]), $config);
 $assert($gloss !== null && $gloss['item_id'] === 20 && $gloss['width_ft'] === 1.0 && $gloss['height_ft'] === 2.0,
     'Gloss finish selection resolves configured physical dimensions into feet.');
 $assert($matte !== null && $matte['item_id'] === 21 && $matte['quantity'] === 3,
     'Matte selection preserves the requested order quantity.');
 $assert($cutout !== null && $cutout['item_id'] === 20,
     'Glossy cut-out selects only Gloss Laminate.');
+$assert($matteCutout !== null && $matteCutout['item_id'] === 21,
+    'Matte cut-out selects only Matte Laminate.');
 $assert(printflow_pos_sticker_laminate_selection($lineFor(''), $config) === null,
     'An unset sticker option triggers no laminate stock check while the form is incomplete.');
 
@@ -63,6 +67,53 @@ $assert($glossPlan['finished_quantity'] === 1 && $glossPlan['run_length_per_pane
     'A 1 × 2 ft piece fits the configured 2 ft roll by rotation and consumes 1 linear ft.');
 $assert($mattePlan['finished_quantity'] === 3 && $mattePlan['run_length_per_panel_ft'] === 1.0,
     'Three selected pieces require three separate one-foot panels.');
+
+// Matte is configured as physical roll stock in the supplied inventory view.
+$matteRollWidth = printflow_pos_sticker_laminate_roll_width_ft(21, [
+    'id' => 21, 'name' => 'Matte Laminate', 'status' => 'ACTIVE', 'unit_of_measure' => 'ft',
+    'track_by_roll' => 1, 'material_format' => 'roll', 'material_width' => 12,
+    'material_dimension_unit' => 'in',
+]);
+$matte100 = printflow_pos_sticker_laminate_panel_plan(
+    printflow_pos_sticker_laminate_selection($lineFor($options[3], 100), $config),
+    $matteRollWidth
+);
+$assert($matte100['calculation']['required_linear_ft'] === 200.0,
+    'A one-foot-wide laminate roll consumes two linear feet per 1 × 2 ft sticker; quantity 100 requires 200 ft.');
+$matteShort = printflow_tarpaulin_allocate_cart_panels(
+    ['matte-100' => ['item_id' => 21, 'plan' => $matte100]],
+    [21 => [['id' => 21, 'branch_id' => 1, 'roll_code' => 'M1', 'remaining_length_ft' => 50, 'received_at' => '2026-01-01']]]
+);
+$matteEnough = printflow_tarpaulin_allocate_cart_panels(
+    ['matte-100' => ['item_id' => 21, 'plan' => $matte100]],
+    [21 => [['id' => 21, 'branch_id' => 1, 'roll_code' => 'M1', 'remaining_length_ft' => 200, 'received_at' => '2026-01-01']]]
+);
+$assert(empty($matteShort['ok']) && !empty($matteEnough['ok']),
+    'The configured 1 ft width blocks 100 pieces at 50 ft and allows them at 200 ft.');
+
+// Gloss is shown as standard (ledger) FT stock in the supplied current inventory view.
+$glossLedgerItem = [
+    'id' => 20, 'name' => 'Gloss Laminate', 'status' => 'ACTIVE', 'unit_of_measure' => 'ft',
+    'track_by_roll' => 0, 'material_format' => 'sheet', 'material_width' => 24,
+    'material_dimension_unit' => 'in',
+];
+$assert(printflow_pos_sticker_laminate_uses_physical_rolls($item)
+    && !printflow_pos_sticker_laminate_uses_physical_rolls($glossLedgerItem),
+    'Stock source follows the item track_by_roll flag, not a blanket roll assumption.');
+$glossLedgerPlan = printflow_pos_sticker_laminate_panel_plan(
+    printflow_pos_sticker_laminate_selection($lineFor($options[0], 100), $config),
+    2.0
+);
+$glossLedgerCapacity = printflow_tarpaulin_allocate_cart_panels(
+    ['gloss' => ['item_id' => 20, 'plan' => $glossLedgerPlan]],
+    [20 => [['id' => 20, 'branch_id' => 1, 'roll_code' => 'Branch FT stock', 'remaining_length_ft' => 100, 'received_at' => '']]]
+);
+$glossLedgerShort = printflow_tarpaulin_allocate_cart_panels(
+    ['gloss' => ['item_id' => 20, 'plan' => $glossLedgerPlan]],
+    [20 => [['id' => 20, 'branch_id' => 1, 'roll_code' => 'Branch FT stock', 'remaining_length_ft' => 50, 'received_at' => '']]]
+);
+$assert(!empty($glossLedgerCapacity['ok']) && empty($glossLedgerShort['ok']),
+    'Standard FT ledger stock is checked as aggregate footage using the same panel-width fit plan.');
 
 $branch1 = [
     ['id' => 1, 'branch_id' => 1, 'roll_code' => 'G1', 'remaining_length_ft' => 3, 'received_at' => '2026-01-01'],
@@ -95,10 +146,13 @@ $assert(str_contains($cart, "case 'validate_service_stock':")
     && str_contains($cart, 'printflow_pos_validate_service_stock('),
     'The endpoint revalidates availability for modal checks and again before accepting a cart add.');
 $assert(str_contains($source, 'printflow_pos_tarpaulin_open_rolls($itemId, $branchId)')
-    && str_contains($source, 'printflow_pos_sticker_laminate_filter_branch_rolls'),
-    'Production roll reads are branch-scoped and defensively filtered before allocation.');
+    && str_contains($source, 'printflow_pos_sticker_laminate_filter_branch_rolls')
+    && str_contains($source, 'InventoryManager::getStockOnHand($itemId, $branchId)')
+    && str_contains($source, 'printflow_pos_sticker_laminate_uses_physical_rolls'),
+    'Physical roll reads and standard-FT ledger reads are branch-scoped and selected by actual inventory tracking mode.');
 $assert(str_contains($pos, 'const stickerLaminateReady = Number(serviceId) === 36')
     && str_contains($pos, '&& !stickerLaminateReady')
+    && str_contains($pos, 'Matte Sticker (?:Printed|Cut Out)')
     && str_contains($pos, "body.addEventListener('change', (event) => {"),
     'A selected physical sticker finish bypasses unrelated incomplete-field deferral and form changes schedule revalidation.');
 $confirmStart = strpos($pos, 'async function confirmServiceModal()');

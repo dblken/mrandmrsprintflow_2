@@ -9,7 +9,7 @@ function printflow_pos_sticker_laminate_item_for_finish(string $finish): ?int
 {
     $finish = trim($finish);
     if (preg_match('/^Glossy Sticker (?:Printed|Cut Out)\b/i', $finish)) return 20;
-    if (preg_match('/^Matte Sticker Printed\b/i', $finish)) return 21;
+    if (preg_match('/^Matte Sticker (?:Printed|Cut Out)\b/i', $finish)) return 21;
     return null;
 }
 
@@ -66,17 +66,15 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
     ];
 }
 
-/** Validate the exact inventory identity and derive laminate roll width from saved metadata. */
+/** Validate the exact inventory identity and derive usable laminate width from saved metadata. */
 function printflow_pos_sticker_laminate_roll_width_ft(int $itemId, array $item): float
 {
     $expected = [20 => 'Gloss Laminate', 21 => 'Matte Laminate'];
     if (!isset($expected[$itemId]) || (int)($item['id'] ?? 0) !== $itemId
         || strcasecmp(trim((string)($item['name'] ?? '')), $expected[$itemId]) !== 0
         || strtoupper(trim((string)($item['status'] ?? ''))) !== 'ACTIVE'
-        || !in_array(strtolower(trim((string)($item['unit_of_measure'] ?? ''))), ['ft', 'feet', 'foot'], true)
-        || empty($item['track_by_roll'])
-        || strtolower(trim((string)($item['material_format'] ?? ''))) !== 'roll') {
-        throw new RuntimeException('The mapped laminate is not configured as active, branch-tracked roll inventory in feet. Contact an administrator.');
+        || !in_array(strtolower(trim((string)($item['unit_of_measure'] ?? ''))), ['ft', 'feet', 'foot'], true)) {
+        throw new RuntimeException('The mapped laminate is not configured as active inventory measured in feet. Contact an administrator.');
     }
     $width = $item['material_width'] ?? null;
     $unit = strtolower(trim((string)($item['material_dimension_unit'] ?? '')));
@@ -89,6 +87,12 @@ function printflow_pos_sticker_laminate_roll_width_ft(int $itemId, array $item):
         throw new RuntimeException('The mapped laminate roll width unit is unsupported. Contact an administrator.');
     }
     return (float)$width * $factor;
+}
+
+/** Whether this exact laminate uses physical roll rows rather than ledger footage. */
+function printflow_pos_sticker_laminate_uses_physical_rolls(array $item): bool
+{
+    return !empty($item['track_by_roll']);
 }
 
 /** Prepare a physical panel plan using the laminate's own width, never Tarpaulin width presets. */
