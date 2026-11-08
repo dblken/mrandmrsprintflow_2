@@ -1169,7 +1169,9 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            align-self: flex-start;
+            align-self: stretch;
+            box-sizing: border-box;
+            width: 100%;
             gap: 8px;
             min-height: 34px;
             margin-top: auto;
