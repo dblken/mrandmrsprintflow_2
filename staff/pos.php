@@ -1909,24 +1909,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         .pos-customer-select-wrap .select2-container--default .select2-selection--single .select2-selection__rendered {
             line-height: 26px;
             color: #1e293b;
-            padding-left: 28px;
+            padding-left: 0;
+            font-family: var(--pf-ui-font-sans);
+            font-size: 14px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             display: block;
             position: relative;
-        }
-
-        .pos-customer-select-wrap .select2-container--default .select2-selection--single .select2-selection__rendered::before {
-            content: '\f007';
-            font-family: 'Font Awesome 6 Free';
-            font-weight: 900;
-            position: absolute;
-            left: 12px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--staff-primary);
-            font-size: 13px;
         }
 
         .pos-customer-select-wrap .select2-container--default .select2-selection--single .select2-selection__arrow {
