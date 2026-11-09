@@ -414,6 +414,8 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
     $tarpaulinPhysicalIssues = [];
     $tarpaulinPlans = [];
     $stickerLaminatePlans = [];
+    $stickerLaminateSelections = [];
+    $stickerLaminateSelectionMeta = [];
     $stickerLaminateItemIds = [];
     $stickerLaminateRollsByItem = [];
     $stickerLaminateReconciliationByItem = [];
@@ -642,7 +644,25 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                             'received_at' => '',
                         ]] : [];
                     }
-                    $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
+                    try {
+                        $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
+                    } catch (InvalidArgumentException $error) {
+                        $stickerLaminatePhysicalIssues[] = [
+                            'item_id' => $itemId,
+                            'name' => (string)($item['name'] ?? 'Laminate'),
+                            'uom' => 'ft',
+                            'required' => 0,
+                            'available' => 0,
+                            'message' => 'The sticker size does not fit the ' . (string)($item['name'] ?? 'laminate')
+                                . ' roll width (' . rtrim(rtrim(number_format($rollWidthFt, 3, '.', ''), '0'), '.') . ' ft).',
+                        ];
+                        $tracked = true;
+                        continue;
+                    }
+                    $stickerLaminateSelectionMeta[$lineIndex] = $selection + [
+                        'roll_width_ft' => $rollWidthFt,
+                        'branch_id' => $branchId,
+                    ];
                     $stickerLaminateItemIds[$itemId] = true;
                     $stickerLaminateRollsByItem[$itemId] = $rolls;
                     $stickerLaminatePlans[$lineIndex] = [
@@ -723,6 +743,31 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             if (!$item || strtoupper((string)($item['status'] ?? '')) !== 'ACTIVE') {
                 throw new RuntimeException('A selected Sticker/Decals laminate is no longer active. Contact an administrator.');
             }
+            if (!empty($allocation['ok'])) {
+                foreach ($plansForItem as $planLineIndex => $planEntry) {
+                    $meta = $stickerLaminateSelectionMeta[$planLineIndex] ?? null;
+                    $rows = array_values(array_filter((array)($allocation['allocations_by_line'][$planLineIndex] ?? []), 'is_array'));
+                    if (!is_array($meta) || $rows === []) continue;
+                    $configuredWidth = (float)($meta['roll_width_ft'] ?? 0);
+                    $rows = array_map(static function (array $row) use ($configuredWidth): array {
+                        $row['roll_width_ft'] = $configuredWidth;
+                        return $row;
+                    }, $rows);
+                    $stickerLaminateSelections[$planLineIndex] = [
+                        'version' => 'sticker_laminate_v1',
+                        'item_id' => $itemId,
+                        'item_name' => (string)$item['name'],
+                        'branch_id' => (int)($meta['branch_id'] ?? $branchId),
+                        'finish' => (string)($meta['finish'] ?? ''),
+                        'width_ft' => (float)($meta['width_ft'] ?? 0),
+                        'height_ft' => (float)($meta['height_ft'] ?? 0),
+                        'finished_quantity' => (int)($meta['quantity'] ?? 0),
+                        'roll_width_ft' => (float)($meta['roll_width_ft'] ?? 0),
+                        'required_linear_ft' => array_sum(array_map(static fn(array $row): float => (float)($row['length_ft'] ?? 0), $rows)),
+                        'roll_allocations' => $rows,
+                    ];
+                }
+            }
             $rolls = $stickerLaminateRollsByItem[$itemId] ?? [];
             $available = isset($stickerLaminateReconciliationByItem[$itemId])
                 ? (float)$stickerLaminateReconciliationByItem[$itemId]['display_balance']
@@ -795,6 +840,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         'materials' => $materials,
         'issues' => $issues,
         'tarpaulin_selections' => $tarpaulinSelections,
+        'sticker_laminate_selections' => $stickerLaminateSelections,
         'material_selections_by_line' => $materialSelectionsByLine,
     ];
 }

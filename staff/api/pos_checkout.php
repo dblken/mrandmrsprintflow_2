@@ -1842,6 +1842,12 @@ foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $line
     $customization['pos_tarpaulin_selection'] = $selection;
     $items[$lineIndex]['customization'] = $customization;
 }
+foreach ((array)($serviceStockValidation['sticker_laminate_selections'] ?? []) as $lineIndex => $selection) {
+    if (!is_array($selection) || !isset($items[$lineIndex])) continue;
+    $customization = is_array($items[$lineIndex]['customization'] ?? null) ? $items[$lineIndex]['customization'] : [];
+    $customization['pos_sticker_laminate_selection'] = $selection;
+    $items[$lineIndex]['customization'] = $customization;
+}
 
 $serviceMaterialError = pos_checkout_validate_assigned_service_materials(
     $items,

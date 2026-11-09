@@ -6060,6 +6060,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker (?:Printed|Cut Out))\b/i.test(selected)
                         && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")\s*[x×*]\s*\d+(?:\.\d+)?/i.test(selected);
                 });
+            const stickerCustomFinish = String(serviceCustomization.sticker_custom_finish || '').trim().toLowerCase();
+            const stickerCustomProcess = String(serviceCustomization.sticker_custom_process || '').trim().toLowerCase();
+            const stickerCustomSizeChosen = Object.values(serviceCustomization).some(value => /^(?:others|custom size|customsize)$/i.test(String(value || '').trim()));
+            const stickerCustomReady = Number(serviceId) === 36
+                && stickerCustomSizeChosen
+                && Number(serviceCustomization.width) > 0
+                && Number(serviceCustomization.height) > 0
+                && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || serviceCustomization.dimensions_unit || '').toLowerCase())
+                && ['matte', 'gloss', 'glossy'].includes(stickerCustomFinish)
+                && ['printed', 'cut out', 'cutout'].includes(stickerCustomProcess);
             const plateTypeRaw = String(
                 serviceCustomization.type_of_plates
                 || serviceCustomization['Type Of Plates']
@@ -6079,11 +6089,17 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 : [];
             const sintraSelectedItemId = sintraSelectedIds.length === 1 ? sintraSelectedIds[0] : 0;
             const sintraThicknessSelected = Number(serviceId) === 71 && sintraSelectedItemId > 0;
+            if (Number(serviceId) === 36 && stickerCustomSizeChosen && !stickerCustomReady) {
+                const message = 'Enter width, height, laminate finish, and sticker type before checking laminate stock.';
+                posSetServiceStockState(true, '', message);
+                return { valid: false, message };
+            }
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63
                 && !(paperEarlyStock && paperDimsReady)
                 && !(tarpaulinEarlyStock && tarpaulinDimensionsReady)
                 && !stickerLaminateReady
+                && !stickerCustomReady
                 && !plateTypeSelected
                 && !sintraThicknessSelected) {
                 posSetServiceStockState(false, '', '');
@@ -6304,6 +6320,22 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                         return { valid: false, message };
                     }
                     posSetServiceStockState(false, 'Tarpaulin stock is available for these dimensions and quantity.', '');
+                    return { valid: true, tracked: true };
+                }
+                if (Number(serviceId) === 36) {
+                    const selections = validation.sticker_laminate_selections && typeof validation.sticker_laminate_selections === 'object'
+                        ? Object.values(validation.sticker_laminate_selections) : [];
+                    const concretePlan = selections.some(selection => selection
+                        && selection.version === 'sticker_laminate_v1'
+                        && Number(selection.item_id) > 0
+                        && Array.isArray(selection.roll_allocations)
+                        && selection.roll_allocations.length > 0);
+                    if (!concretePlan) {
+                        const message = 'Sticker laminate stock could not be verified against a complete roll allocation. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
+                    posSetServiceStockState(false, 'Laminate stock is available for this sticker size, finish, and quantity.', '');
                     return { valid: true, tracked: true };
                 }
                 posSetServiceStockState(false, '', '');
@@ -6903,9 +6935,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                             if (pfDimensionPairIsValid(widthVal, heightVal)) {
                                 const fieldKey = serviceFieldKey(row, sel.name);
                                 const combined = widthVal + 'x' + heightVal;
-                                selectValue = combined;
                                 customization.width = widthVal;
                                 customization.height = heightVal;
+                                if (Number(serviceId) === 36) {
+                                    selectValue = otherValue;
+                                    const finish = othersWrap.querySelector('[name="sticker_custom_finish"]');
+                                    const process = othersWrap.querySelector('[name="sticker_custom_process"]');
+                                    const unitField = othersWrap.querySelector('[name$="_unit"], [name="unit"]');
+                                    if (finish && String(finish.value || '').trim()) customization.sticker_custom_finish = String(finish.value).trim();
+                                    if (process && String(process.value || '').trim()) customization.sticker_custom_process = String(process.value).trim();
+                                    if (unitField && String(unitField.value || '').trim()) {
+                                        customization.pos_material_dimension_unit = String(unitField.value).trim();
+                                    }
+                                } else {
+                                    selectValue = combined;
+                                }
                                 if (fieldKey) {
                                     customization[fieldKey + '_width'] = widthVal;
                                     customization[fieldKey + '_height'] = heightVal;

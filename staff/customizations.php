@@ -4930,6 +4930,21 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 return details.pos_tarpaulin_selection || null;
             },
+            persistedPosStickerLaminateSelection() {
+                const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
+                const matching = items.find(item => Number(item?.service_id || item?.customization?.service_id || 0) === 36)
+                    || items.find(item => Number(item?.order_item_id || 0) === Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0));
+                const raw = matching?.customization_data;
+                let details = matching?.customization && typeof matching.customization === 'object' ? matching.customization : {};
+                if (typeof raw === 'string' && raw.trim()) {
+                    try { details = { ...details, ...(JSON.parse(raw) || {}) }; } catch (error) {}
+                }
+                if (!details.pos_sticker_laminate_selection && this.currentJo?.customization_details?.pos_sticker_laminate_selection) {
+                    details = this.currentJo.customization_details;
+                }
+                const selection = details.pos_sticker_laminate_selection || null;
+                return selection && selection.version === 'sticker_laminate_v1' ? selection : null;
+            },
             tarpaulinAllocationSummary(material) {
                 const allocations = Array.isArray(material?.metadata?.tarpaulin_roll_allocations)
                     ? material.metadata.tarpaulin_roll_allocations : [];
@@ -5523,7 +5538,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (window.PrintFlowReceiptScanner && this.currentJo.order_id) {
                     window.PrintFlowReceiptScanner.markOrderOpened(this.currentJo.order_id, 'staff-customizations');
                 }
-                this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                this.$nextTick(() => { this.maybeAutoSelectTarpaulinRoll(); this.maybeAutoSelectStickerLaminate(); });
             },
             async fetchOrderModalSummary(orderId, options = {}) {
                 const parsedOrderId = parseInt(orderId, 10);
@@ -9020,6 +9035,25 @@ window.pfServiceFieldCatalog = (() => {
                         quantityConfirmed = true;
                     }
                 }
+                const isStickerLaminate = Number(context.serviceId) === 36;
+                let stickerRollAllocations = [];
+                if (isStickerLaminate) {
+                    const persistedSticker = this.persistedPosStickerLaminateSelection();
+                    const stickerJobBranch = Number(this.currentJo?.branch_id || this.currentJo?.order_branch_id || 0);
+                    const stickerPlanBranch = Number(persistedSticker?.branch_id || 0);
+                    const stickerPlanMatchesJob = stickerPlanBranch > 0 && (stickerJobBranch <= 0 || stickerJobBranch === stickerPlanBranch);
+                    if (persistedSticker && Number(persistedSticker.item_id) === Number(item.id) && stickerPlanMatchesJob) {
+                        stickerRollAllocations = (Array.isArray(persistedSticker.roll_allocations) ? persistedSticker.roll_allocations : [])
+                            .filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+                        const plannedFootage = stickerRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                        if (plannedFootage > 0) {
+                            qty = Number(plannedFootage.toFixed(3));
+                            estimatedQty = qty;
+                            usageReason = 'Using the server-validated laminate footage from the POS allocation plan.';
+                            quantityConfirmed = true;
+                        }
+                    }
+                }
                 this.pendingMaterials.push({
                     // Canonical inventory identity — same for auto-select and manual click.
                     item_id: Number(item.id),
@@ -9042,6 +9076,13 @@ window.pfServiceFieldCatalog = (() => {
                             roll_id: Number(row.roll_id),
                             roll_code: String(row.roll_code || ''),
                             roll_width_ft: Number(row.roll_width_ft || calc?.roll_width_ft || 0),
+                            length_ft: Number(row.length_ft),
+                        })),
+                        sticker_laminate_version: stickerRollAllocations.length ? 'sticker_laminate_v1' : null,
+                        sticker_roll_allocations: stickerRollAllocations.map(row => ({
+                            roll_id: Number(row.roll_id),
+                            roll_code: String(row.roll_code || ''),
+                            roll_width_ft: Number(row.roll_width_ft || 0),
                             length_ft: Number(row.length_ft),
                         })),
                         material_usage: {
@@ -9108,6 +9149,23 @@ window.pfServiceFieldCatalog = (() => {
                     );
                 }
                 if (!isEligibleTarpaulinRoll(candidate)) return;
+                this.queueMaterialFromPicker(candidate, { autoSelected: true });
+            },
+            maybeAutoSelectStickerLaminate() {
+                if (!this.currentJo) return;
+                const context = this.materialCompatibilityContext || {};
+                if (Number(context.serviceId) !== 36) return;
+                if ((this.pendingMaterials || []).length > 0) return;
+                if ((Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []).length > 0) return;
+                const persisted = this.persistedPosStickerLaminateSelection();
+                const itemId = Number(persisted?.item_id || 0);
+                if (!persisted || itemId <= 0) return;
+                const candidate = (this.allInventoryItems || []).find(item => Number(item.id) === itemId) || null;
+                const state = candidate ? this.materialClassification(candidate) : null;
+                if (!candidate || !state || !state.selectable || !state.directSelectable) {
+                    this.productionErrors.material = 'The laminate from the saved sticker allocation is not available for this order. Refresh the order before continuing.';
+                    return;
+                }
                 this.queueMaterialFromPicker(candidate, { autoSelected: true });
             },
             /**
@@ -9334,7 +9392,7 @@ window.pfServiceFieldCatalog = (() => {
                     await Promise.allSettled([inventoryPromise, machinesPromise]);
                     this.markPosSetPriceTiming('inventory_ready');
                     if (this.showDetailsModal) {
-                        this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                        this.$nextTick(() => { this.maybeAutoSelectTarpaulinRoll(); this.maybeAutoSelectStickerLaminate(); });
                     }
                 } else {
                     await this.loadOrders();
@@ -11556,7 +11614,7 @@ window.pfServiceFieldCatalog = (() => {
                     this.materialRules = Array.isArray(res.material_rules) ? res.material_rules : [];
                     this.activeProductionServices = Array.isArray(res.active_services) ? res.active_services : [];
                     this.laminationItemsList = this.allInventoryItems.filter(i => i.name.toUpperCase().includes('LAMINATE'));
-                    this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                    this.$nextTick(() => { this.maybeAutoSelectTarpaulinRoll(); this.maybeAutoSelectStickerLaminate(); });
                 }
             },
 

@@ -1038,11 +1038,24 @@ try {
     }
 
     if (in_array($action, ['add', 'update', 'update_service_link', 'validate_stock'], true)) {
+        foreach ($_SESSION['pos_cart'] as &$posCartLine) {
+            if ((int)($posCartLine['product_id'] ?? 0) === 36 && is_array($posCartLine['customization'] ?? null)) {
+                unset($posCartLine['customization']['pos_sticker_laminate_selection']);
+            }
+        }
+        unset($posCartLine);
         pos_cart_validate_product_demand($_SESSION['pos_cart'], pos_cart_branch_id());
         $serviceStockValidation = printflow_pos_validate_service_stock(
             array_values($_SESSION['pos_cart']),
             pos_cart_service_validation_branch_id(array_values($_SESSION['pos_cart']))
         );
+        foreach ((array)($serviceStockValidation['sticker_laminate_selections'] ?? []) as $lineIndex => $selection) {
+            if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
+            $stickerCustomization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)
+                ? $_SESSION['pos_cart'][$lineIndex]['customization'] : [];
+            $stickerCustomization['pos_sticker_laminate_selection'] = $selection;
+            $_SESSION['pos_cart'][$lineIndex]['customization'] = $stickerCustomization;
+        }
         foreach ((array)($serviceStockValidation['tarpaulin_selections'] ?? []) as $lineIndex => $selection) {
             if (!is_array($selection) || !isset($_SESSION['pos_cart'][$lineIndex])) continue;
             $customization = is_array($_SESSION['pos_cart'][$lineIndex]['customization'] ?? null)

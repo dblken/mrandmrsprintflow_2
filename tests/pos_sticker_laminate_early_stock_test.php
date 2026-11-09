@@ -257,5 +257,99 @@ $assert($confirm !== '' && strpos($confirm, 'posValidateServiceStockNow(') !== f
 $assert(!str_contains(file_get_contents(dirname(__DIR__) . '/includes/pos_sticker_laminate_early_stock.php'), 'issueStock('),
     'The early check does not deduct or reserve inventory.');
 
+$customConfig = $config;
+$customConfig[0]['_options'][] = 'Others';
+$customLine = static function (string $finish, string $process, float $width, float $height, int $qty): array {
+    return [
+        'qty' => $qty,
+        'customization' => [
+            'dimensions' => 'Others',
+            'width' => $width,
+            'height' => $height,
+            'pos_material_dimension_unit' => 'ft',
+            'sticker_custom_finish' => $finish,
+            'sticker_custom_process' => $process,
+        ],
+    ];
+};
+$customMatte = printflow_pos_sticker_laminate_selection($customLine('Matte', 'Printed', 2, 3, 4), $customConfig);
+$customGloss = printflow_pos_sticker_laminate_selection($customLine('Gloss', 'Cut Out', 2, 3, 4), $customConfig);
+$assert($customMatte !== null && $customMatte['item_id'] === 21 && $customMatte['width_ft'] === 2.0 && $customMatte['height_ft'] === 3.0 && $customMatte['quantity'] === 4,
+    'Custom Matte size uses Matte Laminate item 21 and the entered width, height, and quantity.');
+$assert($customGloss !== null && $customGloss['item_id'] === 20,
+    'Custom Gloss size uses Gloss Laminate item 20.');
+$assert(printflow_pos_sticker_laminate_selection([
+    'qty' => 1,
+    'customization' => ['dimensions' => 'Others', 'width' => 2, 'height' => 3, 'pos_material_dimension_unit' => 'ft'],
+], $customConfig) === null, 'A custom size without a laminate finish stays pending.');
+$onePiece = printflow_pos_sticker_laminate_panel_plan(
+    printflow_pos_sticker_laminate_selection($customLine('Matte', 'Printed', 2, 3, 1), $customConfig),
+    2.0
+);
+$fourPieces = printflow_pos_sticker_laminate_panel_plan($customMatte, 2.0);
+$assert($onePiece['calculation']['required_linear_ft'] === 3.0
+    && $fourPieces['calculation']['required_linear_ft'] === 12.0
+    && $fourPieces['finished_quantity'] === 4,
+    'A 2 × 3 ft sticker on a 2 ft roll uses the 3 ft side as the run; quantity 4 requires 12 ft.');
+$enough = printflow_tarpaulin_allocate_cart_panels(
+    ['custom' => ['item_id' => 21, 'plan' => $fourPieces]],
+    [21 => [['id' => 501, 'branch_id' => 1, 'roll_code' => 'M-A', 'status' => 'OPEN', 'remaining_length_ft' => 12, 'received_at' => '2026-01-01']]]
+);
+$short = printflow_tarpaulin_allocate_cart_panels(
+    ['custom' => ['item_id' => 21, 'plan' => $fourPieces]],
+    [21 => [['id' => 501, 'branch_id' => 1, 'roll_code' => 'M-A', 'status' => 'OPEN', 'remaining_length_ft' => 9, 'received_at' => '2026-01-01']]]
+);
+$split = printflow_tarpaulin_allocate_cart_panels(
+    ['custom' => ['item_id' => 21, 'plan' => $fourPieces]],
+    [21 => [
+        ['id' => 601, 'branch_id' => 1, 'roll_code' => 'M-1', 'status' => 'OPEN', 'remaining_length_ft' => 6, 'received_at' => '2026-01-01'],
+        ['id' => 602, 'branch_id' => 1, 'roll_code' => 'M-2', 'status' => 'OPEN', 'remaining_length_ft' => 6, 'received_at' => '2026-01-02'],
+    ]]
+);
+$splitRows = array_values((array)($split['allocations_by_line']['custom'] ?? []));
+$splitByRoll = [];
+foreach ($splitRows as $row) $splitByRoll[(int)$row['roll_id']] = (float)$row['length_ft'];
+$assert(!empty($enough['ok']) && empty($short['ok']),
+    'Custom sticker stock passes when the open roll covers 12 ft and fails when it only has 9 ft.');
+$assert(!empty($split['ok']) && ($splitByRoll[601] ?? 0) === 6.0 && ($splitByRoll[602] ?? 0) === 6.0,
+    'Custom sticker panels are allocated across two eligible open rolls when one roll cannot hold every panel.');
+
+$stickerUi = printflow_render_field_custom_size_others_wrap('dimensions', [
+    'label' => 'Dimensions And Finish',
+    'unit' => 'ft',
+    'field_options' => ['Others'],
+], true, '', 'wrap', 'select-others-dimensions');
+$tarpaulinUi = printflow_render_field_custom_size_others_wrap('dimensions', [
+    'label' => 'Dimensions',
+    'unit' => 'ft',
+    'field_options' => ['Others'],
+], true, '', 'wrap', 'select-others-dimensions');
+$assert(str_contains($stickerUi, 'name="sticker_custom_finish"')
+    && str_contains($stickerUi, 'Matte Laminate')
+    && str_contains($stickerUi, 'Gloss Laminate')
+    && str_contains($stickerUi, 'name="sticker_custom_process"')
+    && str_contains($stickerUi, 'Width')
+    && str_contains($stickerUi, 'Height'),
+    'The sticker custom-size panel has laminate finish, sticker type, width, and height.');
+$assert(!str_contains($tarpaulinUi, 'sticker_custom_finish'),
+    'The shared custom-size panel does not add sticker finish controls to Tarpaulin dimensions.');
+
+$assignment = (string)file_get_contents(dirname(__DIR__) . '/staff/customizations.php');
+$jobs = (string)file_get_contents(dirname(__DIR__) . '/includes/JobOrderService.php');
+$jobApi = (string)file_get_contents(dirname(__DIR__) . '/admin/job_orders_api.php');
+$assert(str_contains($source, "'sticker_laminate_selections'")
+    && str_contains($cart, 'pos_sticker_laminate_selection')
+    && str_contains($pos, 'sticker_laminate_v1')
+    && str_contains($pos, 'stickerCustomReady'),
+    'POS blocks Add to Order unless the server returns a concrete sticker laminate allocation.');
+$assert(str_contains($assignment, 'persistedPosStickerLaminateSelection')
+    && str_contains($assignment, 'maybeAutoSelectStickerLaminate')
+    && str_contains($assignment, 'manual_quantity_confirmed: quantityConfirmed'),
+    'Production Assignment auto-fills the saved laminate footage and treats it as confirmed.');
+$assert(str_contains($jobApi, 'printflow_pos_sticker_saved_laminate_selection_for_job')
+    && str_contains($jobs, 'deductFromValidatedAllocation')
+    && str_contains($jobs, '$stickerLaminateDeducted[$itemId] = true'),
+    'Completion deducts the saved sticker roll rows once and does not repeat that deduction.');
+
 echo "POS sticker laminate early-stock checks passed.\n";
 

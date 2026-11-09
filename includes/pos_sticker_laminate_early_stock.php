@@ -13,6 +13,17 @@ function printflow_pos_sticker_laminate_item_for_finish(string $finish): ?int
     return null;
 }
 
+/** Map the structured custom-size finish controls to the same laminate items. */
+function printflow_pos_sticker_laminate_item_for_custom_finish(string $finish, string $process): ?int
+{
+    $finish = strtolower(trim($finish));
+    $process = strtolower(trim(preg_replace('/\s+/', ' ', $process) ?? ''));
+    if (!in_array($process, ['printed', 'cut out', 'cutout'], true)) return null;
+    if (in_array($finish, ['gloss', 'glossy'], true)) return 20;
+    if ($finish === 'matte') return 21;
+    return null;
+}
+
 /** Resolve the selected configured sticker option; incomplete form edits stay pending. */
 function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows): ?array
 {
@@ -45,6 +56,46 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
             if ($unit === '') throw new RuntimeException('The selected Sticker/Decals size has no valid measurement unit.');
             $dimensionSelections[] = ['row' => $row, 'value' => $selected, 'pair' => $pair, 'unit' => $unit];
         }
+    }
+    $customSizeSelected = false;
+    foreach ($fieldRows as $row) {
+        if (!is_array($row)) continue;
+        $key = trim((string)($row['field_key'] ?? ''));
+        $label = trim((string)($row['field_label'] ?? ''));
+        $selected = trim((string)($customization[$key] ?? $customization[$label] ?? ''));
+        if ($selected !== '' && function_exists('printflow_service_field_is_custom_size_option_value')
+            && printflow_service_field_is_custom_size_option_value($selected)) {
+            $customSizeSelected = true;
+        }
+    }
+    if ($customSizeSelected) {
+        if ($finishSelections !== [] || $dimensionSelections !== []) {
+            throw new RuntimeException('Choose either a listed Sticker/Decals size or a custom size, not both.');
+        }
+        $itemId = printflow_pos_sticker_laminate_item_for_custom_finish(
+            (string)($customization['sticker_custom_finish'] ?? ''),
+            (string)($customization['sticker_custom_process'] ?? '')
+        );
+        $width = $customization['width'] ?? $customization['dimensions_width'] ?? null;
+        $height = $customization['height'] ?? $customization['dimensions_height'] ?? null;
+        $unit = strtolower(trim((string)($customization['pos_material_dimension_unit'] ?? $customization['dimensions_unit'] ?? $customization['unit'] ?? '')));
+        if ($itemId === null || !is_numeric($width) || (float)$width <= 0 || !is_numeric($height) || (float)$height <= 0 || $unit === '') {
+            return null;
+        }
+        try {
+            $factor = printflow_tarpaulin_dimension_unit_to_ft_factor($unit);
+        } catch (InvalidArgumentException $error) {
+            throw new RuntimeException('The custom Sticker/Decals size unit is not supported.');
+        }
+        $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
+        return [
+            'item_id' => $itemId,
+            'finish' => trim((string)$customization['sticker_custom_finish']) . ' ' . trim((string)$customization['sticker_custom_process']),
+            'width_ft' => (float)$width * $factor,
+            'height_ft' => (float)$height * $factor,
+            'quantity' => $quantity,
+            'custom_size' => true,
+        ];
     }
     if ($finishSelections === []) return null;
     if (count($finishSelections) !== 1) throw new RuntimeException('Select one configured Sticker/Decals finish for laminate stock validation.');
@@ -182,6 +233,33 @@ function printflow_pos_sticker_laminate_reconciliation_message(string $name, arr
     }, $mismatches);
     return $message . ' The configured width is ' . $configuredWidth . ' ft; '
         . implode('; ', $rollDetails) . '. Verify the physical width and correct the roll record in Admin if needed.';
+}
+
+/** Load the server-validated laminate allocation persisted on a POS sticker order line. */
+function printflow_pos_sticker_saved_laminate_selection_for_job(int $jobId, ?array $knownJob = null): ?array
+{
+    if (!function_exists('printflow_tarpaulin_authoritative_job_service_id')) {
+        require_once __DIR__ . '/tarpaulin_material_calculation.php';
+    }
+    if (printflow_tarpaulin_authoritative_job_service_id($jobId, $knownJob) !== 36) return null;
+    $job = $knownJob;
+    if ($job === null || !isset($job['order_id'], $job['order_item_id'])) {
+        $rows = db_query('SELECT id, order_id, order_item_id FROM job_orders WHERE id = ? LIMIT 2', 'i', [$jobId]);
+        if (!is_array($rows) || count($rows) !== 1) return null;
+        $job = $rows[0];
+    }
+    $orderId = (int)($job['order_id'] ?? 0);
+    $itemId = (int)($job['order_item_id'] ?? 0);
+    if ($orderId <= 0 || $itemId <= 0) return null;
+    $rows = db_query('SELECT customization_data FROM order_items WHERE order_item_id = ? AND order_id = ? LIMIT 2', 'ii', [$itemId, $orderId]);
+    if (!is_array($rows) || count($rows) !== 1) return null;
+    $customization = json_decode((string)($rows[0]['customization_data'] ?? ''), true);
+    $selection = is_array($customization) ? ($customization['pos_sticker_laminate_selection'] ?? null) : null;
+    if (!is_array($selection) || ($selection['version'] ?? '') !== 'sticker_laminate_v1') return null;
+    $allocations = array_values(array_filter((array)($selection['roll_allocations'] ?? []), 'is_array'));
+    if ((int)($selection['item_id'] ?? 0) <= 0 || (int)($selection['branch_id'] ?? 0) <= 0 || $allocations === []) return null;
+    $selection['roll_allocations'] = $allocations;
+    return $selection;
 }
 
 /** Sum valid branch-scoped open roll footage in the inventory's recorded unit (feet). */

@@ -32,7 +32,7 @@ $assertions = [
     'material starts unselected' => str_contains($source, "newMaterialId: ''"),
     'recommendations never invoke generic handleMaterialSelection automatically' => !preg_match('/(?:init|finishDetailLoadWith|loadAllInventoryItems)[\s\S]{0,500}handleMaterialSelection\s*\(/', $source),
     'Tarpaulin restores automatic mapped-roll selection from customer dimensions' => str_contains($source, 'maybeAutoSelectTarpaulinRoll()')
-        && str_contains($source, 'this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll())'),
+        && str_contains($source, 'this.maybeAutoSelectTarpaulinRoll();'),
     'active inventory is requested for the production picker' => str_contains($source, 'inventory_items_api.php?action=get_items&active_only=1&production_picker=1'),
     'item 63 is excluded from picker data' => str_contains($source, 'Number(item.id) !== 63'),
     'active service rules are returned' => str_contains($api, "WHERE i.status = 'ACTIVE'") && str_contains($api, "'material_rules' => \$materialRules"),

@@ -490,6 +490,26 @@ function printflow_render_field_custom_size_others_wrap(
     $maxFt = printflow_service_dimension_max_for_unit('ft', $config);
     $maxIn = printflow_service_dimension_max_for_unit('in', $config);
     $html = '<div class="' . htmlspecialchars($wrapClass, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($wrapId, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($show ? 'block' : 'none') . ';">';
+    $label = strtolower(trim((string)($config['label'] ?? '')));
+    if (preg_match('/\bdimensions?\b/', $label) && preg_match('/\bfinish\b/', $label)) {
+        $savedFinish = trim((string)($config['_saved_customization']['sticker_custom_finish'] ?? ''));
+        $savedProcess = trim((string)($config['_saved_customization']['sticker_custom_process'] ?? ''));
+        $html .= '<div class="pf-sticker-custom-finish" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">';
+        $html .= '<label style="display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:#334155;">Laminate finish';
+        $html .= '<select name="sticker_custom_finish" class="input-field" aria-label="Sticker laminate finish">';
+        $html .= '<option value="" disabled' . ($savedFinish === '' ? ' selected' : '') . '>Select finish</option>';
+        foreach (['Matte' => 'Matte Laminate', 'Gloss' => 'Gloss Laminate'] as $value => $caption) {
+            $html .= '<option value="' . $value . '"' . (strcasecmp($savedFinish, $value) === 0 ? ' selected' : '') . '>' . $caption . '</option>';
+        }
+        $html .= '</select></label>';
+        $html .= '<label style="display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:#334155;">Sticker type';
+        $html .= '<select name="sticker_custom_process" class="input-field" aria-label="Sticker print or cut out">';
+        $html .= '<option value="" disabled' . ($savedProcess === '' ? ' selected' : '') . '>Select type</option>';
+        foreach (['Printed', 'Cut Out'] as $value) {
+            $html .= '<option value="' . $value . '"' . (strcasecmp($savedProcess, $value) === 0 ? ' selected' : '') . '>' . $value . '</option>';
+        }
+        $html .= '</select></label></div>';
+    }
     $html .= printflow_render_service_custom_size_panel([
         'field_key' => $field_key,
         'unit_meta' => $unitMeta,

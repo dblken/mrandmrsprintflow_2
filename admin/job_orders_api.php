@@ -3212,9 +3212,12 @@ try {
             foreach (['lamination_item_id', 'lamination_roll_id', 'lamination_length_ft', 'waste_length_ft'] as $derivedKey) {
                 unset($metadata[$derivedKey]);
             }
+            unset($metadata['sticker_roll_allocations'], $metadata['sticker_laminate_version']);
             $isVersionedTarpaulin = false;
             $savedTarpaulinPlanForAssignment = null;
             $plannedTarpaulinAllocationRows = [];
+            $savedStickerPlanForAssignment = null;
+            $plannedStickerAllocationRows = [];
             if (!is_finite($qty) || $qty <= 0) {
                 throw new Exception("Material quantity must be positive.");
             }
@@ -3328,6 +3331,31 @@ try {
                     ];
                 }, array_filter($plannedAllocations, 'is_array'));
             }
+            if ((int)($materialContext['serviceId'] ?? 0) === 36 && $assignmentJobId > 0) {
+                require_once __DIR__ . '/../includes/pos_sticker_laminate_early_stock.php';
+                $savedStickerPlan = printflow_pos_sticker_saved_laminate_selection_for_job($assignmentJobId);
+                if (is_array($savedStickerPlan) && (int)($savedStickerPlan['item_id'] ?? 0) === $itemId) {
+                    $plannedAllocations = array_values(array_filter((array)($savedStickerPlan['roll_allocations'] ?? []), 'is_array'));
+                    $plannedFt = array_sum(array_map(
+                        static fn(array $row): float => max(0.0, (float)($row['length_ft'] ?? 0)),
+                        $plannedAllocations
+                    ));
+                    if ((int)($savedStickerPlan['branch_id'] ?? 0) <= 0
+                        || $plannedAllocations === [] || $plannedFt <= 0
+                        || abs((float)$qty - $plannedFt) > 0.001) {
+                        throw new Exception('Sticker laminate assignment must use the saved roll allocation for this finish. Refresh the order to rebuild the allocation plan.');
+                    }
+                    $savedStickerPlanForAssignment = $savedStickerPlan;
+                    $plannedStickerAllocationRows = array_map(static function (array $row): array {
+                        return [
+                            'roll_id' => (int)($row['roll_id'] ?? 0),
+                            'roll_code' => (string)($row['roll_code'] ?? ''),
+                            'roll_width_ft' => (float)($row['roll_width_ft'] ?? 0),
+                            'length_ft' => (float)($row['length_ft'] ?? 0),
+                        ];
+                    }, $plannedAllocations);
+                }
+            }
             // Plates blank Actual Usage cannot exceed ordered quantity (New Plate / blank-consuming types).
             if ((int)($materialContext['serviceId'] ?? 0) === 39 && $assignmentJobId > 0) {
                 require_once __DIR__ . '/../includes/pos_plates_release_rule.php';
@@ -3391,6 +3419,13 @@ try {
                 // Rendered allocation details are copied from the server-authored
                 // order-line plan, never trusted from the browser request.
                 $metadata['tarpaulin_roll_allocations'] = $plannedTarpaulinAllocationRows;
+            }
+            if (is_array($savedStickerPlanForAssignment)) {
+                if ((int)($savedStickerPlanForAssignment['branch_id'] ?? 0) !== $branchId) {
+                    throw new Exception('The saved sticker laminate plan belongs to a different branch. Refresh the order before assigning materials.');
+                }
+                $metadata['sticker_laminate_version'] = 'sticker_laminate_v1';
+                $metadata['sticker_roll_allocations'] = $plannedStickerAllocationRows;
             }
             db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [$itemId]);
             $availableStock = (float)InventoryManager::getStockOnHandForUpdate($itemId, $branchId);

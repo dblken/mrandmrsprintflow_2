@@ -9,6 +9,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
+require_once __DIR__ . '/pos_sticker_laminate_early_stock.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
@@ -2116,7 +2117,28 @@ class JobOrderService {
                 throw new RuntimeException('The saved Tarpaulin allocation no longer matches the job dimensions, quantity, or branch. Revalidate before deduction.');
             }
         }
+        $savedStickerLaminate = $jobDimensionRow
+            ? printflow_pos_sticker_saved_laminate_selection_for_job((int)$orderId, $jobDimensionRow)
+            : null;
+        if (is_array($savedStickerLaminate) && (int)($savedStickerLaminate['branch_id'] ?? 0) !== $branchId) {
+            throw new RuntimeException('The saved sticker laminate allocation belongs to a different branch. Revalidate before deduction.');
+        }
+        if (is_array($savedStickerLaminate) && $processMaterials) {
+            $plannedStickerItemId = (int)($savedStickerLaminate['item_id'] ?? 0);
+            $allStickerAssignments = self::getScopedMaterials((int)$orderId, false, false);
+            $stickerAssignmentFound = false;
+            foreach ($allStickerAssignments as $stickerAssignment) {
+                if ((int)($stickerAssignment['item_id'] ?? 0) === $plannedStickerItemId) {
+                    $stickerAssignmentFound = true;
+                    break;
+                }
+            }
+            if (!$stickerAssignmentFound) {
+                throw new RuntimeException('The saved sticker laminate allocation is missing from Production Assignment. No inventory was deducted.');
+            }
+        }
         $tarpaulinRollFitDeducted = [];
+        $stickerLaminateDeducted = [];
         $itemsById = [];
         foreach ($materials as $pendingMaterial) {
             $pendingItemId = (int)($pendingMaterial['item_id'] ?? 0);
@@ -2284,6 +2306,24 @@ class JobOrderService {
                                 $m['item_id'], $savedPanelPlan, 'JOB_ORDER', $orderId,
                                 "Tarpaulin whole-panel cuts deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
                             );
+                        } elseif (is_array($savedStickerLaminate) && (int)($savedStickerLaminate['item_id'] ?? 0) === $itemId) {
+                            $plannedAllocations = array_values(array_filter((array)($savedStickerLaminate['roll_allocations'] ?? []), 'is_array'));
+                            $plannedLength = array_sum(array_map(
+                                static fn(array $allocation): float => max(0.0, (float)($allocation['length_ft'] ?? 0)),
+                                $plannedAllocations
+                            ));
+                            if (!empty($stickerLaminateDeducted[$itemId])
+                                || (int)($savedStickerLaminate['branch_id'] ?? 0) !== $branchId
+                                || $plannedAllocations === []
+                                || $plannedLength <= 0
+                                || abs($lengthNeeded - $plannedLength) > 0.001) {
+                                throw new RuntimeException('The assigned sticker laminate does not match the validated POS roll plan. No other rolls were used.');
+                            }
+                            $deductionResult = RollService::deductFromValidatedAllocation(
+                                $itemId, $plannedAllocations, $lengthNeeded, 'JOB_ORDER', $orderId,
+                                "Sticker laminate usage deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
+                            );
+                            $stickerLaminateDeducted[$itemId] = true;
                         } else {
                             // Historical and linear_ft_v1 assignments retain aggregate FIFO behavior.
                             $deductionResult = RollService::deductFIFO(
