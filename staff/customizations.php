@@ -9846,12 +9846,31 @@ window.pfServiceFieldCatalog = (() => {
                         || (Number(b.order_id || b.id) || 0) - (Number(a.order_id || a.id) || 0);
                 };
 
-                return filtered.sort(compareRows);
+                const sorted = filtered.sort(compareRows);
+                if (this.activeStatus !== 'ALL') {
+                    return sorted;
+                }
+                const urgent = [];
+                const regular = [];
+                sorted.forEach((row) => {
+                    if (this.orderIsUrgentRequest(row)) {
+                        urgent.push(row);
+                    } else {
+                        regular.push(row);
+                    }
+                });
+                return urgent.concat(regular);
             },
 
             buildOrderListItems(rows, pageStart = 0) {
                 const items = [];
                 let prevUrgent = null;
+                if (pageStart > 0 && this.activeStatus === 'ALL') {
+                    const priorRow = this.filteredOrders[pageStart - 1];
+                    if (priorRow) {
+                        prevUrgent = this.orderIsUrgentRequest(priorRow);
+                    }
+                }
                 const safeRows = Array.isArray(rows) ? rows : [];
                 safeRows.forEach((jo, index) => {
                     if (!jo || typeof jo !== 'object') {

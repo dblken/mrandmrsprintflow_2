@@ -72,4 +72,9 @@ const inquiryOnly = sanitizeOrderListItems(buildOrderListItems([urgent, regular]
 assert.strictEqual(inquiryOnly.length, 2);
 assert.ok(inquiryOnly.every(isValidOrderListRow));
 
+const urgentB = { id: 3, order_type: 'JOB', urgent: true };
+const scatteredUrgent = buildOrderListItems([urgent, urgentB, regular], 0, 'ALL', isUrgent);
+const urgentSectionCount = scatteredUrgent.filter((item) => item.kind === 'section' && item.label === 'Urgent Orders').length;
+assert.strictEqual(urgentSectionCount, 1, 'interleaved urgent rows must not produce duplicate Urgent Orders headers when listed in urgent-first order');
+
 console.log('Customization order list items test passed.');

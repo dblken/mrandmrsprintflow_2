@@ -54,6 +54,7 @@ const sortingContext = Object.assign(Object.create(sorting), {
     activeStatus: 'ALL',
     matchesStatusTab: () => true,
     matchesNonStatusFilters: () => true,
+    orderIsUrgentRequest: () => false,
 });
 assert.deepEqual(sortingContext.filteredOrders.map(item => item.order_id), [9102, 9103, 9101],
     'newest sort follows business chronology even when updated_at values disagree');
@@ -67,7 +68,7 @@ assert.ok(page.includes('this.orders.some(row => {'), 'date filters load the sor
 assert.ok(page.includes('if (this.dateCoveragePending) return []'), 'partial date-range rows are held while coverage is still loading');
 assert.ok(page.includes('if (this.dateCoveragePending) return false;'), 'pagination is hidden until the date-filtered total is complete');
 assert.ok(page.includes('(b._businessTs || 0) - (a._businessTs || 0)'), 'newest/oldest sorting uses business timestamps');
-assert.ok(!page.includes('const aUrgent = this.orderIsUrgentRequest(a) ? 1 : 0;'), 'urgent grouping cannot reorder dated results ahead of the selected chronology');
+assert.ok(page.includes('return urgent.concat(regular);'), 'ALL tab groups urgent orders before other rows while preserving chronology within each group');
 assert.ok(api.includes('ORDER BY COALESCE(o.order_date, jo.created_at) DESC,'), 'job-order SQL pages use the same business date and stable identity ordering');
 assert.ok(api.includes("$a['order_business_date'] ?? $a['order_date'] ?? $a['created_at']"), 'combined API ordering prefers the same business date');
 assert.ok(/\$dashboardFetchLimit\s*=\s*\$serviceOnly\s*\?\s*\$dashboardListOffset\s*\+\s*\$dashboardListLimit\s*\+\s*1/.test(api),
