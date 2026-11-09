@@ -13,6 +13,16 @@ function printflow_pos_sticker_laminate_item_for_finish(string $finish): ?int
     return null;
 }
 
+/** First non-empty customization value for the live field name or its older alias. */
+function printflow_pos_sticker_custom_spec_value(array $customization, array $keys): string
+{
+    foreach ($keys as $key) {
+        $value = trim((string)($customization[$key] ?? ''));
+        if ($value !== '') return $value;
+    }
+    return '';
+}
+
 /** Map the structured custom-size finish controls to the same laminate items. */
 function printflow_pos_sticker_laminate_item_for_custom_finish(string $finish, string $process): ?int
 {
@@ -72,12 +82,11 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
         if ($finishSelections !== [] || $dimensionSelections !== []) {
             throw new RuntimeException('Choose either a listed Sticker/Decals size or a custom size, not both.');
         }
-        $itemId = printflow_pos_sticker_laminate_item_for_custom_finish(
-            (string)($customization['sticker_custom_finish'] ?? ''),
-            (string)($customization['sticker_custom_process'] ?? '')
-        );
-        $width = $customization['width'] ?? $customization['dimensions_width'] ?? null;
-        $height = $customization['height'] ?? $customization['dimensions_height'] ?? null;
+        $finishValue = printflow_pos_sticker_custom_spec_value($customization, ['sticker_custom_finish', 'finish', 'Finish']);
+        $processValue = printflow_pos_sticker_custom_spec_value($customization, ['sticker_custom_process', 'sticker_type', 'Sticker Type']);
+        $itemId = printflow_pos_sticker_laminate_item_for_custom_finish($finishValue, $processValue);
+        $width = $customization['width'] ?? $customization['dimensions_width'] ?? $customization['Width'] ?? null;
+        $height = $customization['height'] ?? $customization['dimensions_height'] ?? $customization['Height'] ?? null;
         $unit = strtolower(trim((string)($customization['pos_material_dimension_unit'] ?? $customization['dimensions_unit'] ?? $customization['unit'] ?? '')));
         if ($itemId === null || !is_numeric($width) || (float)$width <= 0 || !is_numeric($height) || (float)$height <= 0 || $unit === '') {
             return null;
@@ -90,7 +99,9 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
         $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
         return [
             'item_id' => $itemId,
-            'finish' => trim((string)$customization['sticker_custom_finish']) . ' ' . trim((string)$customization['sticker_custom_process']),
+            'finish' => trim($finishValue . ' ' . $processValue),
+            'finish_value' => $finishValue,
+            'process_value' => $processValue,
             'width_ft' => (float)$width * $factor,
             'height_ft' => (float)$height * $factor,
             'quantity' => $quantity,

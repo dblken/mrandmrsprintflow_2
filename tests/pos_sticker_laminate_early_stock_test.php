@@ -399,5 +399,75 @@ $assert(str_contains($jobApi, 'printflow_pos_sticker_saved_laminate_selection_fo
     && str_contains($jobs, '$stickerLaminateDeducted[$itemId] = true'),
     'Completion deducts the saved sticker roll rows once and does not repeat that deduction.');
 
+$liveFields = [[
+    'field_key' => 'dimensions',
+    'field_label' => 'Dimensions',
+    'field_type' => 'select',
+    'unit' => 'ft',
+    'is_visible' => 1,
+    '_options' => ['Matte Sticker Printed (1ft X 2ft)', 'Others'],
+], [
+    'field_key' => 'finish',
+    'field_label' => 'Finish',
+    'field_type' => 'radio',
+    'is_visible' => 1,
+    '_options' => ['Matte', 'Glossy'],
+], [
+    'field_key' => 'sticker_type',
+    'field_label' => 'Sticker Type',
+    'field_type' => 'radio',
+    'is_visible' => 1,
+    '_options' => ['Cut Out', 'Printed'],
+]];
+$liveLine = static function (string $finish, string $type, int $qty = 1): array {
+    return [
+        'qty' => $qty,
+        'customization' => [
+            'dimensions' => 'Others',
+            'width' => '5',
+            'height' => '5',
+            'dimensions_width' => '5',
+            'dimensions_height' => '5',
+            'dimensions_unit' => 'ft',
+            'finish' => $finish,
+            'sticker_type' => $type,
+            'branch_id' => '1',
+            'quantity' => (string)$qty,
+        ],
+    ];
+};
+$screenshot = printflow_pos_sticker_laminate_selection($liveLine('Matte', 'Cut Out'), $liveFields);
+$assert($screenshot !== null
+    && $screenshot['item_id'] === 21
+    && $screenshot['width_ft'] === 5.0
+    && $screenshot['height_ft'] === 5.0
+    && $screenshot['quantity'] === 1
+    && $screenshot['finish_value'] === 'Matte'
+    && $screenshot['process_value'] === 'Cut Out',
+    'A 5 × 5 ft Matte Cut Out reaches laminate validation with width, height, finish, type, and quantity separate.');
+$glossPrinted = printflow_pos_sticker_laminate_selection($liveLine('Glossy', 'Printed', 2), $liveFields);
+$assert($glossPrinted !== null && $glossPrinted['item_id'] === 20 && $glossPrinted['quantity'] === 2
+    && $glossPrinted['finish_value'] === 'Glossy' && $glossPrinted['process_value'] === 'Printed',
+    'Glossy Printed uses Gloss Laminate and keeps the sticker type separate.');
+$missingFinish = $liveLine('Matte', 'Cut Out');
+unset($missingFinish['customization']['finish']);
+$assert(printflow_pos_sticker_laminate_selection($missingFinish, $liveFields) === null,
+    'Custom size without a laminate finish stays incomplete.');
+$missingType = $liveLine('Matte', 'Cut Out');
+unset($missingType['customization']['sticker_type']);
+$assert(printflow_pos_sticker_laminate_selection($missingType, $liveFields) === null,
+    'Custom size without a sticker type stays incomplete.');
+$missingSize = $liveLine('Matte', 'Cut Out');
+$missingSize['customization']['width'] = '';
+$missingSize['customization']['dimensions_width'] = '';
+$assert(printflow_pos_sticker_laminate_selection($missingSize, $liveFields) === null,
+    'Custom size without a width stays incomplete.');
+$posSource = (string)file_get_contents(dirname(__DIR__) . '/staff/pos.php');
+$assert(str_contains($posSource, "stickerSpec(['sticker_custom_finish', 'finish', 'Finish'])")
+    && str_contains($posSource, "stickerSpec(['sticker_custom_process', 'sticker_type', 'Sticker Type'])")
+    && str_contains($posSource, 'serviceCustomization.dimensions_width')
+    && str_contains($posSource, "'dimensions_unit'"),
+    'POS stock validation reads the live finish, sticker type, width, height, and unit fields.');
+
 echo "POS sticker laminate early-stock checks passed.\n";
 

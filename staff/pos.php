@@ -6060,14 +6060,24 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker (?:Printed|Cut Out))\b/i.test(selected)
                         && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")\s*[x×*]\s*\d+(?:\.\d+)?/i.test(selected);
                 });
-            const stickerCustomFinish = String(serviceCustomization.sticker_custom_finish || '').trim().toLowerCase();
-            const stickerCustomProcess = String(serviceCustomization.sticker_custom_process || '').trim().toLowerCase();
+            const stickerSpec = (keys) => {
+                for (const key of keys) {
+                    const value = String(serviceCustomization[key] || '').trim();
+                    if (value) return value;
+                }
+                return '';
+            };
+            const stickerCustomFinish = stickerSpec(['sticker_custom_finish', 'finish', 'Finish']).toLowerCase();
+            const stickerCustomProcess = stickerSpec(['sticker_custom_process', 'sticker_type', 'Sticker Type']).toLowerCase();
+            const stickerCustomWidth = Number(serviceCustomization.width || serviceCustomization.dimensions_width || serviceCustomization.Width || 0);
+            const stickerCustomHeight = Number(serviceCustomization.height || serviceCustomization.dimensions_height || serviceCustomization.Height || 0);
+            const stickerCustomUnit = stickerSpec(['pos_material_dimension_unit', 'dimensions_unit', 'unit']).toLowerCase();
             const stickerCustomSizeChosen = Object.values(serviceCustomization).some(value => /^(?:others|custom size|customsize|customize size)$/i.test(String(value || '').trim()));
             const stickerCustomReady = Number(serviceId) === 36
                 && stickerCustomSizeChosen
-                && Number(serviceCustomization.width) > 0
-                && Number(serviceCustomization.height) > 0
-                && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || serviceCustomization.dimensions_unit || '').toLowerCase())
+                && stickerCustomWidth > 0
+                && stickerCustomHeight > 0
+                && ['ft', 'feet', 'foot', 'in', 'inch', 'inches', 'cm', 'mm'].includes(stickerCustomUnit)
                 && ['matte', 'gloss', 'glossy'].includes(stickerCustomFinish)
                 && ['printed', 'cut out', 'cutout'].includes(stickerCustomProcess);
             const plateTypeRaw = String(
