@@ -90,6 +90,13 @@ class RollService {
      */
     public static function createRoll($itemId, $totalLength, $rollCode = null, $supplier = null, $widthFt = 0, $branchId = null) {
         global $conn;
+        require_once __DIR__ . '/roll_width.php';
+        // Every intake path must supply a measured width; never create a roll
+        // with a sentinel/default width when an older caller omits it.
+        $widthFt = printflow_roll_width_to_feet($widthFt, 'ft');
+        if (!is_numeric($totalLength) || !is_finite((float)$totalLength) || (float)$totalLength <= 0) {
+            throw new InvalidArgumentException('Roll length must be a positive number in feet.');
+        }
 
         require_once __DIR__ . '/InventoryManager.php';
         InventoryManager::ensureBranchScopedSchema();

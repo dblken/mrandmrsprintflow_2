@@ -18,8 +18,23 @@ $candidate = static function (int $id, int $rollWidth, int $branch, array $lengt
 };
 $resolve = static fn(array $candidates, float $width, float $height, int $qty, array $usedDemand = [], array $usedRolls = []): array =>
     printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $qty, $usedDemand, $usedRolls);
+foreach ([3, 4, 5, 6] as $configuredWidth) {
+    $configured = $candidate(10 + $configuredWidth, $configuredWidth, 1, [20]);
+    $configured['material_width'] = $configuredWidth * 12;
+    $configured['material_dimension_unit'] = 'in';
+    $assert(printflow_tarpaulin_parse_nominal_width($configured) === (float)$configuredWidth, 'Configured physical width is unit-normalized independently of roll footage.');
+    $assert($resolve([$configured], 2, 2, 1)['selection']['required_linear_ft'] === 2.0, '2x2 demand is two linear feet on each eligible configured width.');
+}
 
 $empty3ft = $candidate(13, 3, 1, []);
+$invalidConfiguration = $candidate(13, 3, 1, [20]);
+$invalidConfiguration['material_width'] = 3;
+$invalidConfiguration['material_dimension_unit'] = 'unknown';
+$invalidConfigRejected = false;
+try { $resolve([$invalidConfiguration], 2, 2, 1); } catch (RuntimeException $error) {
+    $invalidConfigRejected = str_contains($error->getMessage(), 'reconciliation');
+}
+$assert($invalidConfigRejected, 'Invalid configured width units fail clearly instead of falling back to a name or physical width.');
 $emptyOne = $resolve([$empty3ft], 2, 3, 1);
 $emptyHundred = $resolve([$empty3ft], 2, 3, 100);
 $assert(!$emptyOne['ok'] && $emptyOne['shortage']['required_ft'] === 2.0 && $emptyOne['shortage']['available_ft'] === 0.0,

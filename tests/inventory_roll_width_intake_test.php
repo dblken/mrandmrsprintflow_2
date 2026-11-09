@@ -4,6 +4,9 @@ require_once __DIR__ . '/../includes/roll_width.php';
 $checks = [];
 $checks['24 inches normalize to 2 feet'] = abs(printflow_roll_width_to_feet('24', 'in') - 2.0) < 0.000001;
 $checks['2 feet remain 2 feet'] = abs(printflow_roll_width_to_feet('2', 'ft') - 2.0) < 0.000001;
+foreach ([3, 4, 5, 6] as $configuredWidth) {
+    $checks[$configuredWidth . ' ft Tarpaulin width normalizes from inches'] = printflow_roll_width_to_feet((string)($configuredWidth * 12), 'in') === (float)$configuredWidth;
+}
 $checks['inch unit aliases convert consistently'] = abs(printflow_roll_width_to_feet('24.0', 'inches') - 2.0) < 0.000001;
 $default = printflow_roll_width_default(['material_width' => '2.000', 'material_dimension_unit' => 'ft']);
 $checks['receive form default uses configured item width'] = $default === ['value' => '2.000', 'unit' => 'ft'];
@@ -24,6 +27,8 @@ $rollApi = file_get_contents(__DIR__ . '/../admin/inventory_rolls_api.php');
 $rollPage = file_get_contents(__DIR__ . '/../admin/inv_rolls_management.php');
 $form = file_get_contents(__DIR__ . '/../admin/inv_items_management.php');
 $rollService = file_get_contents(__DIR__ . '/../includes/RollService.php');
+$checks['shared roll creation rejects missing width before any schema/database operation'] = strpos($rollService, "\$widthFt = printflow_roll_width_to_feet(\$widthFt, 'ft');") < strpos($rollService, 'InventoryManager::ensureBranchScopedSchema();', strpos($rollService, 'public static function createRoll'));
+$checks['secondary roll intake submits and normalizes measured width'] = str_contains($rollPage, 'name="roll_width"') && str_contains($rollPage, 'name="roll_width_unit"') && str_contains($rollApi, 'printflow_roll_width_to_feet($_POST[\'roll_width\']') && str_contains($rollApi, 'createRoll($itemId, $len, $code, $supplier, $widthFt)');
 $checks['API normalizes roll width server-side before receiveStock'] = strpos($api, 'printflow_roll_width_to_feet($widthRaw') !== false
     && strpos($api, '\'width_ft\'  => $widthFt') !== false;
 $checks['receive form submits explicit width and unit without a 1-foot fallback'] = strpos($form, "fd.set('roll_width',") !== false

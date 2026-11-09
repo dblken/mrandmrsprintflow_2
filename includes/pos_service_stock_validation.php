@@ -56,6 +56,7 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
     $mappedIds = printflow_pos_tarpaulin_mapped_item_ids();
     $rows = db_query(
         "SELECT i.id, i.name, i.status, i.track_by_roll, i.unit_of_measure,
+                i.material_width, i.material_dimension_unit,
                 c.name AS category_name
          FROM inv_items i
          LEFT JOIN inv_categories c ON c.id = i.category_id

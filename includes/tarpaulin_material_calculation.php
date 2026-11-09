@@ -224,6 +224,14 @@ function printflow_tarpaulin_parse_nominal_width(array $item): float
     $uom = strtolower(trim((string)($item['unit_of_measure'] ?? 'ft')));
     if (!in_array($uom, ['ft', 'feet', 'foot'], true)) return 0.0;
     if (!preg_match('/\b(?:TARPAULIN|TARP)\b/i', $name) && $category !== 'TARPAULIN') return 0.0;
+    if (isset($item['material_width']) && trim((string)$item['material_width']) !== '') {
+        require_once __DIR__ . '/roll_width.php';
+        try {
+            return printflow_roll_width_to_feet($item['material_width'], (string)($item['material_dimension_unit'] ?? ''));
+        } catch (InvalidArgumentException $error) {
+            throw new RuntimeException('Tarpaulin roll widths need reconciliation. Item #' . (int)($item['id'] ?? 0) . ' has invalid configured roll width or unit. Ask an Admin to review its width configuration.');
+        }
+    }
     if (preg_match('/(\d+(?:\.\d+)?)\s*FT\b/i', $name, $match) !== 1) return 0.0;
     $width = (float)$match[1];
     return is_finite($width) && $width > 0 ? $width : 0.0;

@@ -254,7 +254,7 @@ try {
                         exit;
                     }
                     $widthRaw = $_POST['roll_width'] ?? $_POST['width_ft'] ?? '';
-                    $widthUnit = $_POST['roll_width_unit'] ?? 'ft';
+                    $widthUnit = $_POST['roll_width_unit'] ?? (isset($_POST['width_ft']) ? 'ft' : '');
                     try {
                         $widthFt = printflow_roll_width_to_feet($widthRaw, (string)$widthUnit);
                     } catch (InvalidArgumentException $e) {

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/functions.php';
 require_once __DIR__ . '/../includes/TarpaulinService.php';
 require_once __DIR__ . '/../includes/RollService.php';
+require_once __DIR__ . '/../includes/roll_width.php';
 require_once __DIR__ . '/../includes/branch_context.php';
 
 require_role(['Admin', 'Staff']);
@@ -67,13 +68,13 @@ switch ($action) {
         
         $item_id = (int)($input['item_id'] ?? 0);
         $roll_code = sanitize($input['roll_code'] ?? '');
-        $width = (int)($input['width_ft'] ?? 0);
         $length = (float)($input['total_length_ft'] ?? 0);
         // Note: unit_cost/supplier columns are optional but supported in Unified inv_rolls
         $cost = (float)($input['unit_cost'] ?? 0);
         $supplier = sanitize($input['supplier'] ?? '');
 
         try {
+            $width = printflow_roll_width_to_feet($input['roll_width'] ?? $input['width_ft'] ?? '', (string)($input['roll_width_unit'] ?? (isset($input['width_ft']) ? 'ft' : '')));
             if ($item_id <= 0 || $width <= 0 || !is_finite($length) || $length <= 0) throw new InvalidArgumentException('Valid material, width, and length are required.');
             $rollId = RollService::createRoll($item_id, $length, $roll_code, $supplier, $width);
             echo json_encode(['success' => true, 'message' => 'Roll added', 'roll_id' => (int)$rollId]);

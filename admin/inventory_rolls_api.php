@@ -77,7 +77,8 @@ try {
             
             if (!$itemId || $len <= 0) throw new Exception("Invalid item or length.");
             
-            $rollId = RollService::createRoll($itemId, $len, $code, $supplier);
+            $widthFt = printflow_roll_width_to_feet($_POST['roll_width'] ?? $_POST['width_ft'] ?? '', (string)($_POST['roll_width_unit'] ?? (isset($_POST['width_ft']) ? 'ft' : '')));
+            $rollId = RollService::createRoll($itemId, $len, $code, $supplier, $widthFt);
             echo json_encode(['success' => true, 'roll_id' => $rollId]);
             break;
 
