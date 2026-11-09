@@ -207,6 +207,7 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
             }
         }
     }
+    $demandPlan = printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity, $candidates);
     $resolved = printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $quantity, $usedByItemDemand, $usedByItemRoll);
     if (($resolved['reason'] ?? '') === 'incompatible') {
         return [
@@ -214,11 +215,16 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
             'reason' => 'incompatible',
             'selection' => null,
             'shortage' => [
-                'message' => 'No active Tarpaulin roll width can cover the selected order width.',
+                'message' => 'No active configured Tarpaulin roll width can cover the selected order width. Calculated demand: '
+                    . rtrim(rtrim(number_format((float)$demandPlan['required_linear_ft'], 3, '.', ''), '0'), '.')
+                    . ' ft; available eligible stock: 0 ft.',
                 'name' => 'Tarpaulin',
                 'uom' => 'Ft',
-                'required' => 0,
+                'required' => (float)$demandPlan['required_linear_ft'],
                 'available' => 0,
+                'required_ft' => (float)$demandPlan['required_linear_ft'],
+                'available_ft' => 0.0,
+                'calculation' => $demandPlan,
             ],
         ];
     }
@@ -231,15 +237,20 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
                 'message' => 'Multiple Tarpaulin rolls fit these dimensions equally. Ask an administrator to review mapped roll widths.',
                 'name' => 'Tarpaulin',
                 'uom' => 'Ft',
-                'required' => 0,
+                'required' => (float)$demandPlan['required_linear_ft'],
                 'available' => 0,
+                'required_ft' => (float)$demandPlan['required_linear_ft'],
+                'available_ft' => 0.0,
+                'calculation' => $demandPlan,
             ],
         ];
     }
     if (($resolved['reason'] ?? '') === 'search_limit') {
         return ['ok' => false, 'reason' => 'search_limit', 'selection' => null, 'shortage' => [
             'message' => 'The Tarpaulin roll-fit search reached its safe calculation limit. Reduce the quantity or ask an administrator to review the roll stock.',
-            'name' => 'Tarpaulin', 'uom' => 'Ft', 'required' => 0, 'available' => 0,
+            'name' => 'Tarpaulin', 'uom' => 'Ft', 'required' => (float)$demandPlan['required_linear_ft'],
+            'available' => 0, 'required_ft' => (float)$demandPlan['required_linear_ft'], 'available_ft' => 0.0,
+            'calculation' => $demandPlan,
         ]];
     }
     if (empty($resolved['ok'])) {

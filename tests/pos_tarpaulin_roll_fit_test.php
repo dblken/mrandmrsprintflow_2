@@ -19,6 +19,25 @@ $candidate = static function (int $id, int $rollWidth, int $branch, array $lengt
 $resolve = static fn(array $candidates, float $width, float $height, int $qty, array $usedDemand = [], array $usedRolls = []): array =>
     printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $qty, $usedDemand, $usedRolls);
 
+$empty3ft = $candidate(13, 3, 1, []);
+$emptyOne = $resolve([$empty3ft], 2, 3, 1);
+$emptyHundred = $resolve([$empty3ft], 2, 3, 100);
+$assert(!$emptyOne['ok'] && $emptyOne['shortage']['required_ft'] === 2.0 && $emptyOne['shortage']['available_ft'] === 0.0,
+    'An empty 3 ft inventory still reports 2 ft required for a 2×3 order at quantity 1.');
+$assert(!$emptyHundred['ok'] && $emptyHundred['shortage']['required_ft'] === 200.0 && $emptyHundred['shortage']['available_ft'] === 0.0,
+    'An empty 3 ft inventory still reports the independently calculated 200 ft demand for 2×3 at quantity 100.');
+$noConfiguredCandidates = $resolve([], 2, 3, 100);
+$assert(!$noConfiguredCandidates['ok'] && $noConfiguredCandidates['reason'] === 'configuration'
+    && $noConfiguredCandidates['shortage']['required_ft'] === 200.0
+    && $noConfiguredCandidates['shortage']['available_ft'] === 0.0
+    && str_contains($noConfiguredCandidates['shortage']['message'], 'configuration'),
+    'No eligible inventory configuration reports positive geometric demand and a configuration error, never a zero-demand shortage.');
+$invalidDimensionsRejected = false;
+try { $resolve([], 0, 3, 100); } catch (InvalidArgumentException $error) {
+    $invalidDimensionsRejected = str_contains(strtolower($error->getMessage()), 'width');
+}
+$assert($invalidDimensionsRejected, 'Invalid dimensions are rejected before stock lookup instead of becoming a zero-foot shortage.');
+
 // For 3 × 6, every 3–6 ft roll is wide enough. The selected width controls
 // whether the piece runs 6 ft (3–5 ft rolls) or rotates to run 3 ft (6 ft roll).
 foreach ([3, 4, 5, 6] as $rollWidth) {
@@ -44,8 +63,9 @@ $sixFt = $resolve([$candidate(16, 6, 1, [20])], 6, 3, 1);
 $assert($sixFt['ok'] && $sixFt['selection']['item_id'] === 16 && $sixFt['selection']['required_linear_ft'] === 3.0,
     'A 6 ft-wide order uses a 6 ft roll and considers rotation only on that sufficiently wide roll.');
 $narrowOnly = $resolve([$candidate(13, 3, 1, [100]), $candidate(14, 4, 1, [100]), $candidate(15, 5, 1, [100])], 6, 3, 1);
-$assert(!$narrowOnly['ok'] && $narrowOnly['reason'] === 'incompatible',
-    'A 6 ft order is blocked when only narrower stock exists, regardless of aggregate footage.');
+$assert(!$narrowOnly['ok'] && $narrowOnly['reason'] === 'configuration'
+    && $narrowOnly['shortage']['required_ft'] > 0 && $narrowOnly['shortage']['available_ft'] === 0.0,
+    'A 6 ft order is blocked when only narrower stock exists and reports positive demand with no eligible stock.');
 
 // Candidate selection prefers the least material footprint, then the narrower
 // valid width: 3×6 chooses 3 ft, 4×6 chooses 4 ft, and 5×6 chooses 5 ft.
@@ -71,12 +91,15 @@ $assert(!$splitPieceImpossible['ok'] && str_contains((string)$splitPieceImpossib
 
 $wrongWidth = $resolve([$candidate(13, 3, 1, [30], [1])], 3, 6, 1);
 $assert(!$wrongWidth['ok'] && $wrongWidth['reason'] === 'reconciliation'
+    && $wrongWidth['shortage']['required_ft'] === 6.0
     && str_contains((string)$wrongWidth['shortage']['message'], 'roll #1301'),
     'Invalid/conflicting physical width reports the exact roll for reconciliation, not a false zero-stock shortage.');
 $missingWidth = $candidate(13, 3, 1, [30], [0]);
 $missingWidth['roll_width_issues'] = [['roll_id' => 1301, 'width_ft' => 'missing/invalid', 'item_name' => $missingWidth['name']]];
-$missingWidthResult = $resolve([$missingWidth], 3, 6, 1);
-$assert(!$missingWidthResult['ok'] && $missingWidthResult['reason'] === 'reconciliation', 'Missing roll width fails closed with a reconciliation result.');
+$missingWidthResult = $resolve([$missingWidth], 2, 3, 100);
+$assert(!$missingWidthResult['ok'] && $missingWidthResult['reason'] === 'reconciliation'
+    && $missingWidthResult['shortage']['required_ft'] === 200.0,
+    'Missing roll width fails closed while preserving independently calculated demand.');
 
 $branchOne = $candidate(13, 3, 1, [5]);
 $branchOne['open_rolls'][] = ['id' => 1399, 'branch_id' => 2, 'status' => 'OPEN', 'width_ft' => 3, 'remaining_length_ft' => 100];
@@ -105,7 +128,9 @@ $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php')
 $rollService = (string)file_get_contents($root . '/includes/RollService.php');
 $assert(str_contains($validation, 'printflow_tarpaulin_resolve_width_fit(')
     && str_contains($validation, 'printflow_pos_tarpaulin_open_rolls($itemId, $branchId)')
-    && str_contains($validation, 'roll_width_issues'),
+    && str_contains($validation, 'roll_width_issues')
+    && str_contains($validation, "'required' => (float)(\$shortage['required_ft'] ?? 0)")
+    && str_contains($validation, "'available' => (float)(\$shortage['available_ft'] ?? 0)"),
     'Modal stock checks use the width-fit resolver and branch-scoped open physical rolls.');
 $assert(str_contains($cartHandler, 'printflow_pos_validate_service_stock(')
     && str_contains($cartHandler, "in_array(\$action, ['add', 'update', 'update_service_link', 'validate_stock'], true)"),
