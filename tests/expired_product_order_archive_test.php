@@ -28,8 +28,8 @@ $assert = static function (bool $condition, string $message): void {
 
 $assert(strpos($helpers, 'INTERVAL 7 DAY') === false, 'old 7-day retention is removed');
 $assert(substr_count($helpers, 'INTERVAL 24 HOUR') >= 2, 'awaiting and expired states use a 24-hour database-clock threshold');
-$assert(strpos($helpers, '< DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'only orders older than the 24-hour boundary are eligible');
-$assert(strpos($helpers, 'oAlias}.order_date < DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'awaiting retention uses order DATETIME, not displayed date');
+$assert(strpos($helpers, '<= DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'orders at or beyond the 24-hour boundary are eligible');
+$assert(strpos($helpers, 'order_date <= DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'awaiting retention uses order DATETIME, not displayed date');
 $assert(strpos($helpers, 'provider_payment_status_history') !== false, 'expired retention prefers the actual expired transition time');
 $assert(strpos($helpers, "= 'awaiting_payment'") !== false, 'provider Awaiting Payment orders are eligible by the displayed provider state');
 $assert(strpos($helpers, "= 'expired'") !== false, 'provider Expired orders are eligible by the displayed provider state');
@@ -72,7 +72,11 @@ $assert(strpos($orderDetails, 'printflow_expired_product_order_exclude_archived_
 $assert(substr_count($adminOrders, 'printflow_expired_product_order_exclude_archived_sql') >= 3, 'admin product orders list, count, and KPIs apply operational exclusion');
 $assert(strpos($retentionDoc, 'Asia/Manila') !== false && strpos($retentionDoc, '* * * * *') !== false, 'scheduler/timezone operations are documented');
 $assert(is_string($retentionDocNormalized) && stripos($retentionDocNormalized, 'payment submissions, linked job records, and inventory movement rows do not block') !== false, 'documentation explains the non-payment-child deletion policy');
-$assert(strpos($orders, 'fp_display_status') !== false, 'filter panel includes Paid/Expired/Completed');
+$assert(strpos($orders, 'fp_display_status') !== false, 'filter panel still supports payment display filtering');
+$assert(strpos($orders, "'PAID', 'EXPIRED', 'COMPLETED'") === false, 'Paid and Expired are removed from Product Orders display-status filter allowlist');
+$assert(strpos($orders, "'COMPLETED'") !== false && strpos($orders, "'EXPIRED' => 'Expired'") === false, 'only Completed remains in the payment-status filter UI');
+$assert(strpos($helpers, 'latestProviderAbsent') === false, 'stale Pending must hide even when a non-awaiting provider row exists');
+$assert(strpos($helpers, 'printflow_ready_made_product_expired_operational_hidden_sql') !== false, 'expired ready-made rows are hidden operationally');
 $assert(strpos($orders, 'btn-open-archived-orders') === false && strpos($orders, 'openArchivedOrdersModal') === false, 'staff Product Orders Archived UI is removed');
 $assert(strpos($orders, 'archivedOrdersModal') === false, 'staff archived orders modal markup is removed');
 $assert(strpos($orders, "ajax'] === 'archived'") !== false && strpos($orders, '410') !== false, 'legacy staff ajax=archived shortcut returns gone instead of listing');
@@ -90,9 +94,9 @@ $assert(strpos($helpers, 'function printflow_expired_product_order_cleanup') !==
 // timezone-aware policy check, not a database integration test.
 $dbNow = new DateTimeImmutable('2026-11-02 12:00:00', new DateTimeZone('Asia/Manila'));
 $boundary = $dbNow->modify('-24 hours');
-$isDue = static fn(DateTimeImmutable $anchor): bool => $anchor < $boundary;
+$isDue = static fn(DateTimeImmutable $anchor): bool => $anchor <= $boundary;
 $assert(!$isDue($dbNow->modify('-23 hours -59 minutes -59 seconds')), 'Awaiting Payment less than 24 hours old is retained');
-$assert(!$isDue($boundary), 'Awaiting Payment exactly 24 hours old is retained until it is older than 24 hours');
+$assert($isDue($boundary), 'Awaiting Payment exactly 24 hours old is hidden');
 $assert($isDue($boundary->modify('-1 second')), 'Awaiting Payment more than 24 hours old is due');
 $expiredAt = $dbNow->modify('-23 hours');
 $assert(!$isDue($expiredAt), 'Expired order age starts at its expiration timestamp, not its older creation time');

@@ -216,13 +216,9 @@ function printflow_expired_product_order_unpaid_expired_state_sql(string $oAlias
     $expiredState = $hasProviderTable
         ? "(({$latestStatus}) = 'expired' OR (({$latestId}) IS NULL AND {$rawStatus} = 'expired'))"
         : "({$rawStatus} = 'expired')";
-    $latestProviderAbsent = $hasProviderTable
-        ? "({$latestId}) IS NULL"
-        : '1=1';
     $awaitingState = "(
         {$providerStatus} = 'awaiting_payment'
-        OR ({$latestProviderAbsent}
-            AND {$rawStatus} IN ('to pay', 'awaiting payment', 'pending'))
+        OR {$rawStatus} IN ('to pay', 'awaiting payment', 'pending')
     )";
 
     $unpaidOrder = "LOWER(TRIM(COALESCE({$oAlias}.payment_status, ''))) NOT IN ('paid', 'fully paid', 'success', 'successful', 'succeeded')";
@@ -243,7 +239,7 @@ function printflow_expired_product_order_unpaid_expired_sql(string $oAlias = 'o'
 /** Awaiting Payment ages from the DATETIME order_date set with NOW() at online order creation. */
 function printflow_expired_product_order_awaiting_age_sql(string $oAlias = 'o'): string
 {
-    return "{$oAlias}.order_date < DATE_SUB(NOW(), INTERVAL 24 HOUR)";
+    return "{$oAlias}.order_date <= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
 }
 
 /**
@@ -278,7 +274,7 @@ function printflow_expired_product_order_expired_age_sql(string $oAlias = 'o'): 
         THEN {$providerExpiredAt}
         ELSE {$rawOrderExpiredAt}
     END";
-    return "{$expiredAt} < DATE_SUB(NOW(), INTERVAL 24 HOUR)";
+    return "{$expiredAt} <= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
 }
 
 /** Orders eligible for permanent cleanup after 24 hours in Awaiting Payment or Expired. */
@@ -295,7 +291,7 @@ function printflow_expired_product_order_retention_eligible_sql(string $oAlias =
         ? "(({$latestStatus}) = 'expired' OR (({$latestId}) IS NULL AND {$rawStatus} = 'expired'))"
         : "({$rawStatus} = 'expired')";
     $awaitingState = $hasProviderTable
-        ? "(({$latestStatus}) = 'awaiting_payment' OR (({$latestId}) IS NULL AND {$rawStatus} IN ('to pay', 'awaiting payment', 'pending')))"
+        ? "(({$latestStatus}) = 'awaiting_payment' OR {$rawStatus} IN ('to pay', 'awaiting payment', 'pending'))"
         : "({$rawStatus} IN ('to pay', 'awaiting payment', 'pending'))";
 
     $readyMade = printflow_ready_made_product_order_scope_sql($oAlias);
@@ -326,13 +322,49 @@ function printflow_ready_made_product_cancelled_operational_hidden_sql(string $o
     return "({$readyMade} AND ({$cancelled}))";
 }
 
+/** Ready-made rows in an expired checkout/payment state (hidden from operational views). */
+function printflow_ready_made_product_expired_operational_hidden_sql(string $oAlias = 'o'): string
+{
+    $readyMade = printflow_ready_made_product_order_scope_sql($oAlias);
+    $rawStatus = "LOWER(TRIM(COALESCE({$oAlias}.status, '')))";
+    $latestStatus = printflow_expired_product_order_latest_payment_expr($oAlias, 'status');
+    $hasProviderTable = printflow_expired_product_order_provider_table_exists();
+    $expiredState = "({$rawStatus} = 'expired'";
+    if ($hasProviderTable) {
+        $expiredState .= " OR ({$latestStatus}) = 'expired'";
+    }
+    $expiredState .= ')';
+    $activeProtection = "({$rawStatus} NOT IN (
+        'paid', 'payment confirmed', 'processing', 'in production', 'printing',
+        'approved', 'approved design', 'ready for pickup', 'to pickup',
+        'to pick up', 'completed', 'delivered'
+    ))";
+    $noPaidLedger = printflow_expired_product_order_paid_protection_sql($oAlias);
+
+    return "({$readyMade} AND ({$expiredState}) AND ({$activeProtection}) AND ({$noPaidLedger}))";
+}
+
+/** Schema-safe fallback when provider tables are unavailable: stale unpaid Pending/To Pay by order_date. */
+function printflow_ready_made_product_stale_unpaid_fallback_hidden_sql(string $oAlias = 'o'): string
+{
+    $readyMade = printflow_ready_made_product_order_scope_sql($oAlias);
+    $rawStatus = "LOWER(TRIM(COALESCE({$oAlias}.status, '')))";
+    $unpaidPayment = "LOWER(TRIM(COALESCE({$oAlias}.payment_status, ''))) NOT IN ('paid', 'fully paid', 'success', 'successful', 'succeeded')";
+    $awaitingOrder = "{$rawStatus} IN ('to pay', 'awaiting payment', 'pending')";
+    $noPaidLedger = printflow_expired_product_order_paid_protection_sql($oAlias);
+
+    return "({$readyMade} AND ({$unpaidPayment}) AND ({$noPaidLedger}) AND ({$awaitingOrder}) AND ("
+        . printflow_expired_product_order_awaiting_age_sql($oAlias) . '))';
+}
+
 /** Unpaid ready-made rows that exceeded the 24-hour order_date / expiration clock. */
 function printflow_ready_made_product_unpaid_overdue_operational_hidden_sql(string $oAlias = 'o'): string
 {
     $readyMade = printflow_ready_made_product_order_scope_sql($oAlias);
     $state = printflow_expired_product_order_unpaid_expired_state_sql($oAlias);
+    $fallback = printflow_ready_made_product_stale_unpaid_fallback_hidden_sql($oAlias);
     if ($state === '0=1') {
-        return '0=1';
+        return $fallback;
     }
 
     $latestStatus = printflow_expired_product_order_latest_payment_expr($oAlias, 'status');
@@ -340,7 +372,7 @@ function printflow_ready_made_product_unpaid_overdue_operational_hidden_sql(stri
     $expiredState = "(LOWER(TRIM(COALESCE({$oAlias}.status, ''))) = 'expired'"
         . ($hasProviderTable ? " OR ({$latestStatus}) = 'expired'" : '') . ')';
     $awaitingState = $hasProviderTable
-        ? "(({$latestStatus}) = 'awaiting_payment' OR (({$latestStatus}) IS NULL AND LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment', 'pending')))"
+        ? "(({$latestStatus}) = 'awaiting_payment' OR LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment', 'pending'))"
         : "(LOWER(TRIM(COALESCE({$oAlias}.status, ''))) IN ('to pay', 'awaiting payment', 'pending'))";
 
     $unpaidOverdue = "({$state}) AND (
@@ -348,19 +380,20 @@ function printflow_ready_made_product_unpaid_overdue_operational_hidden_sql(stri
         OR (({$awaitingState}) AND (" . printflow_expired_product_order_awaiting_age_sql($oAlias) . "))
     )";
 
-    return "({$readyMade} AND ({$unpaidOverdue}))";
+    return "(({$readyMade} AND ({$unpaidOverdue})) OR {$fallback})";
 }
 
 /** Prevent stale ready-made orders from operational lists when cleanup is disabled or delayed. */
 function printflow_expired_product_order_overdue_for_display_sql(string $oAlias = 'o'): string
 {
     $cancelled = printflow_ready_made_product_cancelled_operational_hidden_sql($oAlias);
+    $expired = printflow_ready_made_product_expired_operational_hidden_sql($oAlias);
     $unpaidOverdue = printflow_ready_made_product_unpaid_overdue_operational_hidden_sql($oAlias);
     if ($unpaidOverdue === '0=1') {
-        return $cancelled;
+        return "({$cancelled} OR {$expired})";
     }
 
-    return "({$cancelled} OR {$unpaidOverdue})";
+    return "({$cancelled} OR {$expired} OR {$unpaidOverdue})";
 }
 
 /** Hide overdue unpaid orders from active lists even when deletion is guarded. */
