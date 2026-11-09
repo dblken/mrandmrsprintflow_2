@@ -165,7 +165,8 @@ function printflow_service_field_is_custom_size_option_value(string $value): boo
     $normalized = strtolower(trim($value));
     return $normalized === 'others'
         || $normalized === 'custom size'
-        || $normalized === 'customsize';
+        || $normalized === 'customsize'
+        || $normalized === 'customize size';
 }
 
 /**
@@ -222,8 +223,10 @@ function printflow_service_field_uses_custom_size_panel(string $field_key, array
     $key = strtolower($field_key);
     $label = strtolower(trim((string) ($config['label'] ?? '')));
     $blob = $key . ' ' . $label;
+    // "dimensions" is a whole word; \bdimension\b does not match it.
+    // A label such as "Dimensions And Finish" is still a size field.
     if (preg_match('/\b(finish|lamination|laminate|material|surface|color|colour)\b/', $blob)
-        && !preg_match('/\b(dimension|size)\b/', $blob)) {
+        && !preg_match('/\b(dimensions?|sizes?)\b/', $blob)) {
         return false;
     }
     if (preg_match('/\b(dimension|dimensions|size|sizes)\b/', $blob)) {
@@ -452,10 +455,20 @@ function printflow_service_dimension_unit_meta_for_context(array $context, ?arra
     return $meta;
 }
 
+function printflow_service_field_is_dimensions_and_finish(string $field_key, array $config): bool
+{
+    $blob = strtolower($field_key . ' ' . trim((string)($config['label'] ?? '')));
+    return preg_match('/\bdimensions?\b/', $blob) === 1
+        && preg_match('/\bfinish\b/', $blob) === 1;
+}
+
 function printflow_service_custom_size_option_label(string $optionValue, string $field_key, array $config): string
 {
     if (printflow_service_field_is_custom_size_option_value($optionValue)
         && printflow_service_field_uses_custom_size_panel($field_key, $config)) {
+        if (printflow_service_field_is_dimensions_and_finish($field_key, $config)) {
+            return 'Customize Size';
+        }
         return printflow_service_dimension_custom_size_label();
     }
     return $optionValue;
@@ -470,7 +483,7 @@ function printflow_service_parse_custom_size_saved_text(string $text): array
     if ($text === '') {
         return ['width' => '', 'height' => ''];
     }
-    if (preg_match('/^Custom Size\s*[—–-]\s*(.+)$/iu', $text, $m)) {
+    if (preg_match('/^(?:Custom Size|Customize Size)\s*[—–-]\s*(.+)$/iu', $text, $m)) {
         $text = trim($m[1]);
     }
     return printflow_service_dimension_parse_pair($text);
@@ -490,19 +503,19 @@ function printflow_render_field_custom_size_others_wrap(
     $maxFt = printflow_service_dimension_max_for_unit('ft', $config);
     $maxIn = printflow_service_dimension_max_for_unit('in', $config);
     $html = '<div class="' . htmlspecialchars($wrapClass, ENT_QUOTES, 'UTF-8') . '" id="' . htmlspecialchars($wrapId, ENT_QUOTES, 'UTF-8') . '" style="margin-top:12px;display:' . ($show ? 'block' : 'none') . ';">';
-    $label = strtolower(trim((string)($config['label'] ?? '')));
-    if (preg_match('/\bdimensions?\b/', $label) && preg_match('/\bfinish\b/', $label)) {
+    $isStickerFinish = printflow_service_field_is_dimensions_and_finish($field_key, $config);
+    if ($isStickerFinish) {
         $savedFinish = trim((string)($config['_saved_customization']['sticker_custom_finish'] ?? ''));
         $savedProcess = trim((string)($config['_saved_customization']['sticker_custom_process'] ?? ''));
         $html .= '<div class="pf-sticker-custom-finish" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:12px;">';
-        $html .= '<label style="display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:#334155;">Laminate finish';
+        $html .= '<label style="display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:#334155;">Laminate finish <span aria-hidden="true">*</span>';
         $html .= '<select name="sticker_custom_finish" class="input-field" aria-label="Sticker laminate finish">';
         $html .= '<option value="" disabled' . ($savedFinish === '' ? ' selected' : '') . '>Select finish</option>';
         foreach (['Matte' => 'Matte Laminate', 'Gloss' => 'Gloss Laminate'] as $value => $caption) {
             $html .= '<option value="' . $value . '"' . (strcasecmp($savedFinish, $value) === 0 ? ' selected' : '') . '>' . $caption . '</option>';
         }
         $html .= '</select></label>';
-        $html .= '<label style="display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:#334155;">Sticker type';
+        $html .= '<label style="display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:700; color:#334155;">Sticker type <span aria-hidden="true">*</span>';
         $html .= '<select name="sticker_custom_process" class="input-field" aria-label="Sticker print or cut out">';
         $html .= '<option value="" disabled' . ($savedProcess === '' ? ' selected' : '') . '>Select type</option>';
         foreach (['Printed', 'Cut Out'] as $value) {
@@ -521,6 +534,7 @@ function printflow_render_field_custom_size_others_wrap(
         'unit_field_name' => $ctx['unit_field_name'],
         'max_ft' => $maxFt,
         'max_in' => $maxIn,
+        'heading' => $isStickerFinish ? 'Customize Size' : '',
         'container_class' => 'dim-others-inputs pf-custom-size-in-select',
         'width_input_class' => 'custom-dim-width pf-custom-size-width',
         'height_input_class' => 'custom-dim-height pf-custom-size-height',
@@ -620,7 +634,11 @@ function printflow_render_service_custom_size_panel(array $options): string
     $html .= ' data-example-w-in="' . htmlspecialchars($exWIn, ENT_QUOTES, 'UTF-8') . '"';
     $html .= ' data-example-h-in="' . htmlspecialchars($exHIn, ENT_QUOTES, 'UTF-8') . '">';
 
-    $html .= '<div class="pf-custom-size-heading">' . htmlspecialchars(printflow_service_dimension_custom_size_label(), ENT_QUOTES, 'UTF-8') . '</div>';
+    $heading = trim((string)($options['heading'] ?? ''));
+    if ($heading === '') {
+        $heading = printflow_service_dimension_custom_size_label();
+    }
+    $html .= '<div class="pf-custom-size-heading">' . htmlspecialchars($heading, ENT_QUOTES, 'UTF-8') . '</div>';
     $html .= '<p class="pf-custom-size-lead">What size do you need?</p>';
 
     $html .= '<div class="pf-custom-size-grid">';

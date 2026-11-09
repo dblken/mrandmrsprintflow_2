@@ -314,6 +314,54 @@ $assert(!empty($enough['ok']) && empty($short['ok']),
 $assert(!empty($split['ok']) && ($splitByRoll[601] ?? 0) === 6.0 && ($splitByRoll[602] ?? 0) === 6.0,
     'Custom sticker panels are allocated across two eligible open rolls when one roll cannot hold every panel.');
 
+$stickerField = [
+    'type' => 'select',
+    'label' => 'Dimensions And Finish',
+    'required' => true,
+    'visible' => true,
+    'unit' => 'ft',
+    'options' => [
+        ['value' => 'Matte Sticker Printed (1ft X 2ft)', 'price' => 0],
+        ['value' => 'Others', 'price' => 0],
+    ],
+];
+$assert(printflow_service_field_uses_custom_size_panel('dimensions', $stickerField),
+    'Dimensions And Finish uses the structured custom-size panel.');
+$assert(!printflow_service_field_uses_custom_size_panel('finish', [
+    'type' => 'select',
+    'label' => 'Finish',
+    'options' => [['value' => 'Others', 'price' => 0]],
+]), 'A finish-only field keeps its own input and does not become a size panel.');
+$assert(printflow_service_custom_size_option_label('Others', 'dimensions', $stickerField) === 'Customize Size',
+    'Staff see Customize Size while the option value stays Others.');
+$assert(printflow_service_field_custom_size_option_value($stickerField) === 'Others',
+    'The sticker custom option keeps the Others value for existing stock handling.');
+require_once dirname(__DIR__) . '/includes/service_field_renderer.php';
+$stickerHtml = render_service_field('dimensions', $stickerField, [], []);
+$assert(str_contains($stickerHtml, '>Customize Size</option>')
+    && str_contains($stickerHtml, 'value="Others"')
+    && !str_contains($stickerHtml, 'Enter custom dimensions and finish')
+    && str_contains($stickerHtml, 'Width (ft)')
+    && str_contains($stickerHtml, 'Height (ft)')
+    && str_contains($stickerHtml, 'name="sticker_custom_finish"')
+    && str_contains($stickerHtml, 'Matte Laminate')
+    && str_contains($stickerHtml, 'Gloss Laminate'),
+    'The sticker selector shows Customize Size and separate width, height, and laminate fields.');
+$tarpaulinField = [
+    'type' => 'select',
+    'label' => 'Dimensions',
+    'visible' => true,
+    'unit' => 'ft',
+    'options' => [['value' => 'Custom Size', 'price' => 0]],
+];
+$tarpaulinHtml = render_service_field('dimensions', $tarpaulinField, [], []);
+$assert(str_contains($tarpaulinHtml, '>Custom Size</option>')
+    && !str_contains($tarpaulinHtml, 'Customize Size')
+    && !str_contains($tarpaulinHtml, 'sticker_custom_finish')
+    && str_contains($tarpaulinHtml, 'Width (ft)')
+    && str_contains($tarpaulinHtml, 'Height (ft)'),
+    'Tarpaulin still shows Custom Size with width and height and no sticker finish controls.');
+
 $stickerUi = printflow_render_field_custom_size_others_wrap('dimensions', [
     'label' => 'Dimensions And Finish',
     'unit' => 'ft',

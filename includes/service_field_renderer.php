@@ -1298,7 +1298,7 @@ function handleNestedFields(radio, fieldKey, optionIndex) {
 
 function pfIsCustomSizeOptionValue(value) {
     const normalized = String(value || '').trim().toLowerCase();
-    return normalized === 'others' || normalized === 'custom size' || normalized === 'customsize';
+    return normalized === 'others' || normalized === 'custom size' || normalized === 'customsize' || normalized === 'customize size';
 }
 
 function pfSyncRadioOthersWrap(radio) {

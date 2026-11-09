@@ -6062,7 +6062,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 });
             const stickerCustomFinish = String(serviceCustomization.sticker_custom_finish || '').trim().toLowerCase();
             const stickerCustomProcess = String(serviceCustomization.sticker_custom_process || '').trim().toLowerCase();
-            const stickerCustomSizeChosen = Object.values(serviceCustomization).some(value => /^(?:others|custom size|customsize)$/i.test(String(value || '').trim()));
+            const stickerCustomSizeChosen = Object.values(serviceCustomization).some(value => /^(?:others|custom size|customsize|customize size)$/i.test(String(value || '').trim()));
             const stickerCustomReady = Number(serviceId) === 36
                 && stickerCustomSizeChosen
                 && Number(serviceCustomization.width) > 0
