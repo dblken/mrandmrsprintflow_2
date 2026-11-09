@@ -589,5 +589,79 @@ $assert(!empty($glossFiftyAllocation['ok'])
     && ($glossFiftyAllocation['required_by_item'][20] ?? 0) === 5.0,
     'Gloss laminate uses the same positive footage demand and 50 ft roll eligibility.');
 
+$separatedPresetFields = [[
+    'field_key' => 'dimensions',
+    'field_label' => 'Dimensions',
+    'field_type' => 'select',
+    'unit' => 'ft',
+    'is_visible' => 1,
+    '_options' => ['2ft X 2ft', '1ft X 1ft', 'Others'],
+], $liveFields[1], $liveFields[2]];
+$twoByTwoMattePrinted = [
+    'qty' => 1,
+    'customization' => [
+        'dimensions' => '2ft X 2ft',
+        'finish' => 'Matte',
+        'sticker_type' => 'Printed',
+        'branch_id' => '1',
+    ],
+];
+$twoByTwo = printflow_pos_sticker_laminate_selection($twoByTwoMattePrinted, $separatedPresetFields);
+$assert($twoByTwo !== null
+    && $twoByTwo['item_id'] === 21
+    && $twoByTwo['width_ft'] === 2.0
+    && $twoByTwo['height_ft'] === 2.0
+    && ($twoByTwo['configured_preset'] ?? false) === true
+    && $twoByTwo['finish_value'] === 'Matte'
+    && $twoByTwo['process_value'] === 'Printed',
+    'A configured 2ft X 2ft preset with separate Matte Printed maps to Matte Laminate item 21.');
+$glossCutTwoByTwo = printflow_pos_sticker_laminate_selection([
+    'qty' => 2,
+    'customization' => [
+        'dimensions' => '2ft X 2ft',
+        'finish' => 'Glossy',
+        'sticker_type' => 'Cut Out',
+        'branch_id' => '1',
+    ],
+], $separatedPresetFields);
+$assert($glossCutTwoByTwo !== null && $glossCutTwoByTwo['item_id'] === 20 && $glossCutTwoByTwo['quantity'] === 2,
+    'Glossy Cut Out on the same preset size uses Gloss Laminate at the requested quantity.');
+$twoByTwoPlan = printflow_pos_sticker_laminate_panel_plan($twoByTwo, $wideMatteRoll);
+$twoByTwoRolls = printflow_pos_sticker_laminate_filter_rolls_by_width([[
+    'id' => 910, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 5,
+    'remaining_length_ft' => 50, 'received_at' => '2026-01-01',
+]], $wideMatteRoll);
+$twoByTwoAlloc = printflow_tarpaulin_allocate_cart_panels(
+    ['two-by-two' => ['item_id' => 21, 'plan' => $twoByTwoPlan]],
+    [21 => $twoByTwoRolls]
+);
+$assert(!empty($twoByTwoAlloc['ok']) && ($twoByTwoAlloc['required_by_item'][21] ?? 0) === 2.0,
+    'One 2 × 2 ft matte sticker requires 2 linear ft and allocates on eligible rolls.');
+$twoByTwoShortAlloc = printflow_tarpaulin_allocate_cart_panels(
+    ['two-by-two' => ['item_id' => 21, 'plan' => $twoByTwoPlan]],
+    [21 => [[
+        'id' => 911, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 5,
+        'remaining_length_ft' => 1, 'received_at' => '2026-01-01',
+    ]]]
+);
+$assert(empty($twoByTwoShortAlloc['ok']),
+    'A true laminate shortage still blocks allocation for preset dimensions.');
+$narrowTwoByTwoFailed = false;
+try {
+    printflow_pos_sticker_laminate_panel_plan($twoByTwo, 1.0);
+} catch (InvalidArgumentException) {
+    $narrowTwoByTwoFailed = true;
+}
+$assert($narrowTwoByTwoFailed,
+    '2 × 2 ft on a 1 ft roll width is rejected before allocation.');
+$assert(printflow_pos_sticker_laminate_selection([
+    'qty' => 1,
+    'customization' => ['dimensions' => '2ft X 2ft', 'branch_id' => '1'],
+], $separatedPresetFields) === null,
+    'Preset size without finish and sticker type stays incomplete.');
+$posSource = (string)file_get_contents(dirname(__DIR__) . '/staff/pos.php');
+$assert(str_contains($posSource, 'stickerSeparatedPresetReady'),
+    'POS stock pre-check runs for configured dimension presets with separate finish/type.');
+
 echo "POS sticker laminate early-stock checks passed.\n";
 

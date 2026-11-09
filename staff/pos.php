@@ -6086,6 +6086,15 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const stickerCustomHeight = Number(serviceCustomization.height || serviceCustomization.dimensions_height || serviceCustomization.Height || 0);
             const stickerCustomUnit = stickerSpec(['pos_material_dimension_unit', 'dimensions_unit', 'unit']).toLowerCase();
             const stickerCustomSizeChosen = Object.values(serviceCustomization).some(value => /^(?:others|custom size|customsize|customize size)$/i.test(String(value || '').trim()));
+            const stickerDimensionValue = stickerSpec(['dimensions', 'Dimensions']);
+            const stickerPresetDimensionChosen = Number(serviceId) === 36
+                && stickerDimensionValue !== ''
+                && !/^(?:others|custom size|customsize|customize size)$/i.test(stickerDimensionValue)
+                && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")?\s*[x×*]\s*\d+(?:\.\d+)?/i.test(stickerDimensionValue);
+            const stickerSeparatedPresetReady = stickerPresetDimensionChosen
+                && !stickerCustomSizeChosen
+                && ['matte', 'gloss', 'glossy'].includes(stickerCustomFinish)
+                && ['printed', 'cut out', 'cutout'].includes(stickerCustomProcess);
             const stickerCustomReady = Number(serviceId) === 36
                 && stickerCustomSizeChosen
                 && stickerCustomWidth > 0
@@ -6122,6 +6131,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 && !(paperEarlyStock && paperDimsReady)
                 && !(tarpaulinEarlyStock && tarpaulinDimensionsReady)
                 && !stickerLaminateReady
+                && !stickerSeparatedPresetReady
                 && !stickerCustomReady
                 && !plateTypeSelected
                 && !sintraThicknessSelected) {

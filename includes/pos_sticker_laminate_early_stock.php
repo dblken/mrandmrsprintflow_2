@@ -265,7 +265,34 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
             'custom_size' => true,
         ];
     }
-    if ($finishSelections === []) return null;
+    // Dimensions-only presets (e.g. 2ft X 2ft) with separate Finish + Sticker Type
+    // controls do not encode laminate SKU in the size value; map finish/type here.
+    if ($finishSelections === []) {
+        if (count($dimensionSelections) !== 1) {
+            return null;
+        }
+        $finishValue = printflow_pos_sticker_custom_spec_value($customization, ['sticker_custom_finish', 'finish', 'Finish']);
+        $processValue = printflow_pos_sticker_custom_spec_value($customization, ['sticker_custom_process', 'sticker_type', 'Sticker Type']);
+        $itemId = printflow_pos_sticker_laminate_item_for_custom_finish($finishValue, $processValue);
+        if ($itemId === null) {
+            return null;
+        }
+        $dimension = $dimensionSelections[0];
+        $pair = $dimension['pair'];
+        $unit = $dimension['unit'];
+        $factor = printflow_tarpaulin_dimension_unit_to_ft_factor($unit);
+        $quantity = printflow_pos_sticker_laminate_line_quantity($line);
+        return [
+            'item_id' => $itemId,
+            'finish' => trim($finishValue . ' ' . $processValue),
+            'finish_value' => $finishValue,
+            'process_value' => $processValue,
+            'width_ft' => (float)$pair['width'] * $factor,
+            'height_ft' => (float)$pair['height'] * $factor,
+            'quantity' => $quantity,
+            'configured_preset' => true,
+        ];
+    }
     if (count($finishSelections) !== 1) throw new RuntimeException('Select one configured Sticker/Decals finish for laminate stock validation.');
     if (count($dimensionSelections) !== 1) throw new RuntimeException('The selected Sticker/Decals finish must resolve to exactly one configured physical size.');
     $finish = $finishSelections[0];
