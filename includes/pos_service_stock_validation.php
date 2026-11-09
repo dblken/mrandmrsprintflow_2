@@ -647,14 +647,26 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                     try {
                         $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
                     } catch (InvalidArgumentException $error) {
+                        $itemName = (string)($item['name'] ?? 'Laminate');
+                        $availableFt = $physicalRollValidation
+                            ? printflow_pos_sticker_laminate_roll_balance_ft($rolls)
+                            : max(0.0, (float)InventoryManager::getStockOnHand($itemId, $branchId));
+                        $widthFt = (float)($selection['width_ft'] ?? 0);
+                        $heightFt = (float)($selection['height_ft'] ?? 0);
+                        $qty = (int)($selection['quantity'] ?? 0);
+                        $requiredFt = min($widthFt, $heightFt) * max(1, $qty);
                         $stickerLaminatePhysicalIssues[] = [
                             'item_id' => $itemId,
-                            'name' => (string)($item['name'] ?? 'Laminate'),
+                            'name' => $itemName,
                             'uom' => 'ft',
-                            'required' => 0,
-                            'available' => 0,
-                            'message' => 'The sticker size does not fit the ' . (string)($item['name'] ?? 'laminate')
-                                . ' roll width (' . rtrim(rtrim(number_format($rollWidthFt, 3, '.', ''), '0'), '.') . ' ft).',
+                            'required' => $requiredFt,
+                            'available' => $availableFt,
+                            'size_does_not_fit' => true,
+                            'message' => printflow_pos_sticker_laminate_size_does_not_fit_message(
+                                $selection,
+                                $rollWidthFt,
+                                $itemName
+                            ),
                         ];
                         $tracked = true;
                         continue;
@@ -773,6 +785,9 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                 ? (float)$stickerLaminateReconciliationByItem[$itemId]['display_balance']
                 : printflow_pos_sticker_laminate_roll_balance_ft($rolls);
             $required = (float)($requiredByItem[$itemId] ?? 0.0);
+            if ($required <= 0) {
+                $required = printflow_pos_sticker_laminate_required_ft_for_plans($plansForItem);
+            }
             $entry = [
                 'item_id' => $itemId,
                 'name' => (string)$item['name'],

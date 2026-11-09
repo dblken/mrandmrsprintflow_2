@@ -496,6 +496,63 @@ $assert(str_contains($posSource, "stickerSpec(['sticker_custom_finish', 'finish'
     && str_contains($posSource, 'serviceCustomization.dimensions_width')
     && str_contains($posSource, "'dimensions_unit'"),
     'POS stock validation reads the live finish, sticker type, width, height, and unit fields.');
+$assert(str_contains($posSource, 'Number(serviceId) === 36 && issue.message')
+    && !str_contains($posSource, 'issue.inventory_discrepancy && issue.message'),
+    'Sticker laminate stock warnings show the server message, not a generic 0 ft shortage.');
+
+$qtyFromCustomization = $liveLine('Matte', 'Printed', 1);
+unset($qtyFromCustomization['qty']);
+$assert(printflow_pos_sticker_laminate_selection($qtyFromCustomization, $liveFields)['quantity'] === 1,
+    'Custom sticker quantity is read from customization when the cart line qty is absent.');
+$fiveByFiveMatte = printflow_pos_sticker_laminate_selection($liveLine('Matte', 'Printed'), $liveFields);
+$wideMatteRoll = printflow_pos_sticker_laminate_roll_width_ft(21, [
+    'id' => 21, 'name' => 'Matte Laminate', 'status' => 'ACTIVE', 'unit_of_measure' => 'ft',
+    'track_by_roll' => 1, 'material_width' => 60, 'material_dimension_unit' => 'in',
+]);
+$fiveByFivePlan = printflow_pos_sticker_laminate_panel_plan($fiveByFiveMatte, $wideMatteRoll);
+$assert($fiveByFivePlan['calculation']['required_linear_ft'] === 5.0
+    && $fiveByFivePlan['finished_quantity'] === 1,
+    'Custom 5 × 5 ft, quantity 1 requires 5 linear ft on a wide enough matte roll.');
+$narrowMattePlanFailed = false;
+try {
+    printflow_pos_sticker_laminate_panel_plan($fiveByFiveMatte, 1.0);
+} catch (InvalidArgumentException) {
+    $narrowMattePlanFailed = true;
+}
+$assert($narrowMattePlanFailed,
+    'A 5 × 5 ft sticker is rejected before allocation when neither dimension fits a 1 ft roll.');
+$fitMessage = printflow_pos_sticker_laminate_size_does_not_fit_message($fiveByFiveMatte, 2.0, 'Matte Laminate');
+$assert(str_contains($fitMessage, '5 × 5 ft') && str_contains($fitMessage, 'at least 5 ft wide'),
+    'Roll-width fit errors explain the sticker size and minimum roll width instead of 0 ft required.');
+$matteFivePlan = printflow_pos_sticker_laminate_panel_plan($fiveByFiveMatte, $wideMatteRoll);
+$matteFiftyRolls = printflow_pos_sticker_laminate_filter_rolls_by_width([[
+    'id' => 900, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 5,
+    'remaining_length_ft' => 50, 'received_at' => '2026-01-01',
+]], $wideMatteRoll);
+$matteFiveAllocation = printflow_tarpaulin_allocate_cart_panels(
+    ['matte-5x5' => ['item_id' => 21, 'plan' => $matteFivePlan]],
+    [21 => $matteFiftyRolls]
+);
+$assert(!empty($matteFiveAllocation['ok'])
+    && ($matteFiveAllocation['required_by_item'][21] ?? 0) === 5.0
+    && printflow_pos_sticker_laminate_roll_balance_ft($matteFiftyRolls) === 50.0,
+    'Fifty feet of eligible matte rolls allocate a 5 ft run for one 5 × 5 ft piece.');
+$glossFive = printflow_pos_sticker_laminate_selection($liveLine('Glossy', 'Printed'), $liveFields);
+$glossWide = printflow_pos_sticker_laminate_roll_width_ft(20, [
+    'id' => 20, 'name' => 'Gloss Laminate', 'status' => 'ACTIVE', 'unit_of_measure' => 'ft',
+    'track_by_roll' => 1, 'material_width' => 60, 'material_dimension_unit' => 'in',
+]);
+$glossFivePlan = printflow_pos_sticker_laminate_panel_plan($glossFive, $glossWide);
+$glossFiftyAllocation = printflow_tarpaulin_allocate_cart_panels(
+    ['gloss-5x5' => ['item_id' => 20, 'plan' => $glossFivePlan]],
+    [20 => [[
+        'id' => 901, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 5,
+        'remaining_length_ft' => 50, 'received_at' => '2026-01-01',
+    ]]]
+);
+$assert(!empty($glossFiftyAllocation['ok'])
+    && ($glossFiftyAllocation['required_by_item'][20] ?? 0) === 5.0,
+    'Gloss laminate uses the same positive footage demand and 50 ft roll eligibility.');
 
 echo "POS sticker laminate early-stock checks passed.\n";
 

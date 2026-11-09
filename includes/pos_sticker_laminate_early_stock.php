@@ -13,6 +13,67 @@ function printflow_pos_sticker_laminate_item_for_finish(string $finish): ?int
     return null;
 }
 
+/** Resolve sticker line quantity from the cart row or embedded customization fields. */
+function printflow_pos_sticker_laminate_line_quantity(array $line): int
+{
+    $customization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+    foreach ([$line['qty'] ?? null, $customization['quantity'] ?? null, $customization['qty'] ?? null] as $candidate) {
+        if ($candidate === null || $candidate === '') {
+            continue;
+        }
+        try {
+            return printflow_pos_parse_positive_quantity($candidate);
+        } catch (InvalidArgumentException) {
+            continue;
+        }
+    }
+    throw new InvalidArgumentException('Quantity must be a positive whole number.');
+}
+
+/** Linear footage demand summed from one or more validated panel plans. */
+function printflow_pos_sticker_laminate_required_ft_for_plans(array $plansForItem): float
+{
+    $total = 0.0;
+    foreach ($plansForItem as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        $plan = is_array($entry['plan'] ?? null) ? $entry['plan'] : [];
+        if (isset($plan['calculation']['required_linear_ft']) && is_numeric($plan['calculation']['required_linear_ft'])) {
+            $total += (float)$plan['calculation']['required_linear_ft'];
+            continue;
+        }
+        $count = (int)($plan['panel_count_per_piece'] ?? 0) * (int)($plan['finished_quantity'] ?? 0);
+        $length = (float)($plan['run_length_per_panel_ft'] ?? 0);
+        $total += $count * $length;
+    }
+    return $total;
+}
+
+/** Staff-facing message when the sticker exceeds the laminate roll's printable width. */
+function printflow_pos_sticker_laminate_size_does_not_fit_message(
+    array $selection,
+    float $rollWidthFt,
+    string $itemName
+): string {
+    $widthFt = (float)($selection['width_ft'] ?? 0);
+    $heightFt = (float)($selection['height_ft'] ?? 0);
+    $qty = (int)($selection['quantity'] ?? 0);
+    $maxDim = max($widthFt, $heightFt);
+    $minDim = min($widthFt, $heightFt);
+    $rollLabel = rtrim(rtrim(number_format($rollWidthFt, 3, '.', ''), '0'), '.');
+    $widthLabel = rtrim(rtrim(number_format($widthFt, 3, '.', ''), '0'), '.');
+    $heightLabel = rtrim(rtrim(number_format($heightFt, 3, '.', ''), '0'), '.');
+    $needWidth = rtrim(rtrim(number_format($maxDim, 3, '.', ''), '0'), '.');
+    $pieceLabel = $qty === 1 ? '1 piece' : $qty . ' pieces';
+    return 'This ' . $widthLabel . ' × ' . $heightLabel . ' ft sticker (' . $pieceLabel
+        . ') does not fit on the configured ' . $rollLabel . ' ft wide ' . $itemName
+        . ' roll. Each piece needs a roll at least ' . $needWidth . ' ft wide'
+        . ($rollWidthFt + 0.001 < $minDim
+            ? ' (the shortest run along the roll would be ' . rtrim(rtrim(number_format($minDim * $qty, 3, '.', ''), '0'), '.') . ' ft once width allows).'
+            : '.');
+}
+
 /** First non-empty customization value for the live field name or its older alias. */
 function printflow_pos_sticker_custom_spec_value(array $customization, array $keys): string
 {
@@ -121,7 +182,9 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
         $itemId = printflow_pos_sticker_laminate_item_for_custom_finish($finishValue, $processValue);
         $width = $customization['width'] ?? $customization['dimensions_width'] ?? $customization['Width'] ?? null;
         $height = $customization['height'] ?? $customization['dimensions_height'] ?? $customization['Height'] ?? null;
-        $unit = strtolower(trim((string)($customization['pos_material_dimension_unit'] ?? $customization['dimensions_unit'] ?? $customization['unit'] ?? '')));
+        $unit = strtolower(trim(printflow_pos_sticker_custom_spec_value($customization, [
+            'pos_material_dimension_unit', 'dimensions_unit', 'unit', 'Unit',
+        ])));
         if ($itemId === null || !is_numeric($width) || (float)$width <= 0 || !is_numeric($height) || (float)$height <= 0 || $unit === '') {
             return null;
         }
@@ -130,7 +193,7 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
         } catch (InvalidArgumentException $error) {
             throw new RuntimeException('The custom Sticker/Decals size unit is not supported.');
         }
-        $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
+        $quantity = printflow_pos_sticker_laminate_line_quantity($line);
         return [
             'item_id' => $itemId,
             'finish' => trim($finishValue . ' ' . $processValue),
@@ -152,7 +215,7 @@ function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows)
     $factor = printflow_tarpaulin_dimension_unit_to_ft_factor($unit);
     $widthFt = (float)$pair['width'] * $factor;
     $heightFt = (float)$pair['height'] * $factor;
-    $quantity = printflow_pos_parse_positive_quantity($line['qty'] ?? null);
+    $quantity = printflow_pos_sticker_laminate_line_quantity($line);
     return [
         'item_id' => (int)$finish['item_id'],
         'finish' => (string)$finish['value'],
