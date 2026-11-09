@@ -14,7 +14,7 @@ $assertions = [
         && str_contains($source, 'Customer print size:')
         && str_contains($source, 'Order quantity:')
         && str_contains($source, 'Configured roll width:')
-        && str_contains($source, 'Planned linear footage (this material only):')
+        && str_contains($source, 'Planned footage:')
         && str_contains($source, 'tarpaulinAssignmentStaffGuidance')
         && str_contains($source, 'tarpaulinAssignmentHeightIsLocked')
         && !str_contains($source, 'Tarpaulin customer width in feet')
@@ -22,7 +22,7 @@ $assertions = [
         && str_contains($source, 'pos-tarp-assignment-dims')
         && str_contains($source, 'customer_width_ft')
         && str_contains($source, 'customer_height_ft')
-        && str_contains($source, 'x-show="!isPendingTarpaulinMaterial(pm)"')
+        && str_contains($source, 'x-show="!isPendingTarpaulinMaterial(pm) && !isPendingStickerLaminateMaterial(pm)"')
         && str_contains($source, 'calculated_linear_ft'),
     'Tarpaulin auto-selects the fitted roll and can prefill calculated Actual Usage' => str_contains($source, 'maybeAutoSelectTarpaulinRoll') && str_contains($source, 'tarpaulin_linear_ft') && str_contains($source, 'out.Width') && str_contains($source, 'out.Height'),
     'secondary add-to-content button is removed' => !str_contains($source, '>Add to Order Content</button>'),
@@ -60,7 +60,12 @@ $assertions = [
     'detail modal preserves submitted specs and avoids service-profile filtering' => str_contains($source, 'let specs = isDetail || options.skipServiceFilter === true') && str_contains($source, 'submittedSpecs') && str_contains($source, 'this.staffFilterSpecsByServiceForm(normalized, item)'),
     'item customization payload is preserved for fulfillment logic' => str_contains($source, 'const customization = merged') && !str_contains($source, 'const customization = this.normalizeSpecAliases(merged)'),
     'spec rendering uses one normalization pipeline' => str_contains($source, 'staffBuildItemDisplaySpecs') && str_contains($source, 'staffEnrichDimensionSpecs'),
-    'internal POS stock metadata is excluded by exact keys' => str_contains($source, "'pos_selected_material_ids'") && str_contains($source, "'pos_material_dimension_unit'") && str_contains($source, "'pos_material_consumption'") && str_contains($source, "'pos_tarpaulin_selection'"),
+    'internal POS stock metadata is excluded by exact keys' => str_contains($source, "'pos_selected_material_ids'") && str_contains($source, "'pos_material_dimension_unit'") && str_contains($source, "'pos_material_consumption'") && str_contains($source, "'pos_tarpaulin_selection'") && str_contains($source, "'pos_sticker_laminate_selection'"),
+    'sticker laminate assignment uses saved POS plan like tarpaulin' => str_contains($source, 'isPendingStickerLaminateMaterial')
+        && str_contains($source, 'sticker_laminate_ft')
+        && str_contains($source, 'maybeAutoSelectStickerLaminate')
+        && str_contains($source, 'sticker_roll_allocations')
+        && str_contains($source, 'Laminate plan'),
     'assigned undeducted material can invoke the guarded correction request' => str_contains($source, "this.removeMaterial(assignment.id)") && str_contains($source, "fd.append('csrf_token'") && str_contains($source, 'await this.refreshMaterials();'),
     'deducted assigned material stays protected in the UI' => str_contains($source, 'Material Already Deducted') && str_contains($source, 'authorized inventory correction workflow'),
     'canonical dimensions label is never suppressed by width height aliases' => str_contains($source, "key !== 'Dimensions'") && str_contains($source, "key !== 'Size / Dimensions'"),

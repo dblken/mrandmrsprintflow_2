@@ -191,16 +191,54 @@ assert.ok(
     'PHP display specs still expose customer dimension values'
 );
 
+const phpSticker = spawnSync('php', ['-r', `
+require '${path.join(root, 'includes/customization_normalizer.php').replace(/\\/g, '/')}';
+$payload = [
+  'dimensions' => 'Others',
+  'dimensions_width' => '5',
+  'dimensions_height' => '5',
+  'finish' => 'Matte',
+  'sticker_type' => 'Printed',
+  'pos_sticker_laminate_selection' => [
+    'version' => 'sticker_laminate_v1',
+    'item_id' => 21,
+    'item_name' => 'Matte Laminate',
+    'width_ft' => 5,
+    'height_ft' => 5,
+    'finished_quantity' => 1,
+    'roll_width_ft' => 6,
+    'required_linear_ft' => 5,
+    'roll_allocations' => [['roll_id' => 158, 'length_ft' => 5]],
+  ],
+];
+$specs = printflow_customization_display_specs($payload, ['include_quantity' => true]);
+echo json_encode($specs);
+`], { encoding: 'utf8' });
+assert.strictEqual(phpSticker.status, 0, phpSticker.stderr || 'php sticker normalizer failed');
+const stickerSpecs = JSON.parse(phpSticker.stdout || '{}');
+assert.ok(!Object.keys(stickerSpecs).some((key) => /sticker laminate selection/i.test(key)),
+    'PHP display specs hide POS Sticker Laminate Selection');
+assert.ok(Object.values(stickerSpecs).some((value) => /matte/i.test(String(value))),
+    'customer finish remains visible');
+
 // --- Assignment keeps print size and usage visible; width is data, not an input ---
 assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row can still recalculate from the height editor');
 assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin assignment card has a dedicated dimension block');
 assert.match(customSource, /Customer print size:/, 'customer print dimensions are explicitly labeled');
 assert.match(customSource, /Order quantity:/, 'finished-piece quantity is visible to staff');
 assert.match(customSource, /Configured roll width:/, 'inventory roll width is distinct from print width');
-assert.match(customSource, /Planned linear footage \(this material only\):/, 'per-material footage is labeled and not confused with height');
+assert.match(customSource, /Planned footage:/, 'per-material footage is labeled concisely');
 assert.match(customSource, /Print height \(customer spec\)/, 'the former Height field is tied to customer spec, not roll width');
 assert.match(customSource, /tarpaulinAssignmentHeightIsLocked/, 'joined-width plans can lock height to the POS allocation');
-assert.match(customSource, /Automatic Tarpaulin allocation/, 'staff guidance explains auto-allocation and deduction timing');
+assert.match(customSource, />Tarpaulin plan</, 'staff guidance explains allocation and deduction timing');
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"/,
+    'generic Actual Usage input is hidden for sticker laminate rows');
+assert.match(customSource, /'pos_sticker_laminate_selection'/, 'JS hides pos_sticker_laminate_selection');
+assert.match(normalizerSource, /'pos_sticker_laminate_selection'/, 'PHP hides pos_sticker_laminate_selection');
+assert.match(normalizerSource, /sticker_laminate_v1/, 'PHP suppresses sticker laminate payload values');
+assert.match(customSource, /isPendingStickerLaminateMaterial/, 'sticker assignment uses dedicated plan cards');
+assert.match(customSource, /sticker_laminate_ft/, 'sticker assignment stores a dedicated usage method');
+assert.match(customSource, />Laminate plan</, 'sticker staff guidance is concise');
 assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll codes stay out of the UI');
 assert.doesNotMatch(customSource, /aria-label="Tarpaulin customer width in feet"/, 'Width (ft) input is not shown on the assignment card');
 assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll allocation text is not rendered');
@@ -210,8 +248,8 @@ assert.match(customSource, /customer_height_ft/, 'pending materials store custom
 assert.match(customSource, /recalculatePendingTarpaulinFromDimensions/, 'editing dimensions recalculates/revalidates roll fit');
 assert.match(customSource, /tarpaulinCalcFromPersistedPlan/, 'multi-roll jobs reuse saved per-item footage when dimensions are unchanged');
 assert.match(customSource, /cannot fit/, 'incompatible dimensions remove/clear the selected roll');
-assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]*Actual Usage:/,
-    'visible Actual Usage input is hidden for Tarpaulin rows');
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"[\s\S]*Actual Usage:/,
+    'visible Actual Usage input is hidden for Tarpaulin and sticker laminate rows');
 assert.match(customSource, /calculated_linear_ft/, 'assignment metadata audits calculated linear-ft deduction separately from dimensions');
 assert.match(pickerSource, /required_linear_ft/, 'picker calculates linear feet consumption');
 assert.match(pickerSource, /unit_of_measure|TARPAULIN \(FT\)|rollWidth/, 'roll fit uses inventory roll width semantics');
@@ -386,8 +424,8 @@ assert.strictEqual(multiRuntime.recalculatePendingTarpaulinFromDimensions(multiR
 assert.strictEqual(multiRuntime.pendingMaterials[1].qty, 50,
     '6ft Tarpaulin stays at 50 ft after dimension input events');
 
-assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
-    'non-Tarpaulin services retain the Actual Usage input');
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
+    'non-plan services retain the Actual Usage input');
 
 console.log(JSON.stringify({
     formula: 'required_linear_ft = min run length after fitting either finished dimension across roll width (linear_ft_v1)',
