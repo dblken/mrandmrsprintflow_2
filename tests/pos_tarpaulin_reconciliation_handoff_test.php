@@ -29,6 +29,7 @@ foreach ([1,10,100] as $quantity) {
         || abs($issue['recorded_open_ft'] - 198.8) > 0.000001
         || count($issue['roll_width_issues']) !== 4
         || !str_contains($issue['message'], 'reconciliation')
+        || !str_contains($issue['message'], 'Calculated demand: ' . (2 * $quantity) . ' ft.')
         || !str_contains($issue['message'], 'roll #155')) {
         throw new RuntimeException('Request adapter lost allocator reconciliation diagnostics.');
     }

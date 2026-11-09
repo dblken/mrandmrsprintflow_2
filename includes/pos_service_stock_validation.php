@@ -259,6 +259,10 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
     }
     if (empty($resolved['ok'])) {
         $shortage = is_array($resolved['shortage'] ?? null) ? $resolved['shortage'] : [];
+        if (($resolved['reason'] ?? '') === 'reconciliation' && !empty($shortage['message'])) {
+            $shortage['message'] .= ' Calculated demand: '
+                . rtrim(rtrim(number_format((float)($shortage['required_ft'] ?? 0), 3, '.', ''), '0'), '.') . ' ft.';
+        }
         return [
             'ok' => false,
             'reason' => (string)($resolved['reason'] ?? 'insufficient'),
