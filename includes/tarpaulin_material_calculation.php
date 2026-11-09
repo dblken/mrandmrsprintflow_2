@@ -215,6 +215,13 @@ function printflow_tarpaulin_normalize_dimensions(array $customization): array
     ];
 }
 
+/** Joined widths are reserved for explicit custom-size choices in the POS. */
+function printflow_tarpaulin_custom_size_selected(array $customization): bool
+{
+    $choice = strtolower(trim((string)($customization['dimensions'] ?? '')));
+    return in_array($choice, ['others', 'other', 'custom size', 'custom'], true);
+}
+
 function printflow_tarpaulin_parse_nominal_width(array $item): float
 {
     if (empty($item['track_by_roll'])) return 0.0;
@@ -305,24 +312,51 @@ function printflow_tarpaulin_width_fit_plan($width, $height, $finishedQuantity, 
 }
 
 /** Calculate positive demand before inspecting physical stock or allocations. */
-function printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity, array $candidates): array
+function printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity, array $candidates, bool $allowJoinedWidths = false): array
 {
     $w = printflow_tarpaulin_dimension($width, 'Width');
     $h = printflow_tarpaulin_dimension($height, 'Height');
     $q = (int)printflow_pos_parse_positive_quantity($quantity);
     $branchId = (int)($candidates[0]['branch_id'] ?? 0);
     $plans = [];
+    $widths = [];
     foreach ($candidates as $candidate) {
         if (!is_array($candidate)
             || strtoupper(trim((string)($candidate['status'] ?? ''))) !== 'ACTIVE'
             || ($branchId > 0 && (int)($candidate['branch_id'] ?? 0) !== $branchId)) continue;
         $rollWidth = printflow_tarpaulin_parse_nominal_width($candidate);
-        if ($rollWidth + 1.0e-9 < $w) continue;
-        try {
-            $plan = printflow_tarpaulin_width_fit_plan($w, $h, $q, $rollWidth);
-            $plans[] = ['plan' => $plan, 'preference' => [(float)$plan['material_area_sqft'], $rollWidth]];
-        } catch (InvalidArgumentException $error) {
-            continue;
+        if ($rollWidth > 0) $widths[] = $rollWidth;
+    }
+    if (!$allowJoinedWidths) {
+        foreach (array_unique($widths) as $rollWidth) {
+            if ($rollWidth + 1.0e-9 < $w) continue;
+            try {
+                $plan = printflow_tarpaulin_width_fit_plan($w, $h, $q, $rollWidth);
+                $plans[] = ['plan' => $plan, 'preference' => [(float)$plan['material_area_sqft'], $rollWidth]];
+            } catch (InvalidArgumentException $error) {
+                continue;
+            }
+        }
+    } else {
+        $widths = array_values(array_unique($widths));
+        sort($widths, SORT_NUMERIC);
+        foreach ([['across' => $w, 'run' => $h], ['across' => $h, 'run' => $w]] as $orientation) {
+            if ($widths === []) break;
+            $minimumWidth = min($widths);
+            $limit = min(500, (int)ceil($orientation['across'] / $minimumWidth) + 1);
+            $pick = static function (int $start, float $covered, float $sum, int $count) use (&$pick, &$plans, $widths, $orientation, $q, $limit): void {
+                if ($covered + 1.0e-9 >= $orientation['across']) {
+                    $linear = $count * $orientation['run'] * $q;
+                    $plans[] = ['plan' => ['roll_width_ft' => $sum, 'orientation' => 'combined',
+                        'run_length_per_piece_ft' => $orientation['run'], 'required_linear_ft' => $linear,
+                        'material_area_sqft' => $sum * $orientation['run'] * $q],
+                        'preference' => [$sum * $orientation['run'] * $q, $count]];
+                    return;
+                }
+                if ($count >= $limit) return;
+                for ($i = $start; $i < count($widths); $i++) $pick($i, $covered + $widths[$i], $sum + $widths[$i], $count + 1);
+            };
+            $pick(0, 0.0, 0.0, 0);
         }
     }
     if ($plans !== []) {
@@ -348,7 +382,7 @@ function printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity,
  * specific physical roll. Every candidate roll must be an active, matching
  * width roll supplied by the branch-scoped inventory loader.
  */
-function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $height, $quantity, array $usedByItemDemand = [], array $usedByItemRoll = []): array
+function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $height, $quantity, array $usedByItemDemand = [], array $usedByItemRoll = [], bool $allowJoinedWidths = false): array
 {
     $w = printflow_tarpaulin_dimension($width, 'Width');
     $h = printflow_tarpaulin_dimension($height, 'Height');
@@ -357,7 +391,22 @@ function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $heigh
     $requestedBranchId = (int)($candidates[0]['branch_id'] ?? 0);
     // Demand is dimension/configuration-derived and must not depend on whether
     // the stock query returns rolls or the allocator can find a feasible set.
-    $demandPlan = printflow_tarpaulin_unallocated_demand_plan($w, $h, $q, $candidates);
+    $demandPlan = printflow_tarpaulin_unallocated_demand_plan($w, $h, $q, $candidates, $allowJoinedWidths);
+    if ($candidates === []) {
+        return ['ok' => false, 'reason' => 'configuration', 'selection' => null, 'shortage' => [
+            'name' => 'Tarpaulin', 'uom' => 'Ft', 'required_ft' => (float)$demandPlan['required_linear_ft'],
+            'available_ft' => 0.0, 'calculation' => $demandPlan,
+            'message' => 'No active Tarpaulin roll-width configuration is available for these dimensions. Calculated demand is '
+                . rtrim(rtrim(number_format((float)$demandPlan['required_linear_ft'], 3, '.', ''), '0'), '.')
+                . ' ft; available eligible stock: 0 ft.',
+        ]];
+    }
+    // Only explicitly entered custom sizes may join configured widths. The
+    // standard-size path below retains its existing single-width policy.
+    if ($allowJoinedWidths) {
+        return printflow_tarpaulin_resolve_roll_fit($candidates, $w, $h, $q, $usedByItemDemand, $usedByItemRoll);
+    }
+
     $reconciliation = [];
     $recordedRolls = [];
     $usableMatchingFt = 0.0;
@@ -378,8 +427,10 @@ function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $heigh
             // source. inv_rolls.width_ft is legacy receipt metadata and is
             // deliberately not consulted for Tarpaulin fit/allocation.
             if ($expectedWidth <= 0) continue;
-            try { printflow_tarpaulin_width_fit_plan($w, $h, $q, $expectedWidth); }
-            catch (InvalidArgumentException $error) { continue; }
+            // A candidate width may be narrower than the print across
+            // dimension; the layout enumerator can join it with other widths.
+            // Validate dimensions independently, then let each full layout
+            // determine whether one or more configured widths cover the piece.
             $matchingRolls[] = $roll;
         }
         foreach ((array)($candidate['roll_width_issues'] ?? []) as $issue) {
@@ -955,7 +1006,16 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
             continue;
         }
         $allocationsByItem = [];
-        foreach ($allocation['allocations_by_line'] ?? [] as $itemId => $items) $allocationsByItem[(int)$itemId] = $items;
+        foreach ($allocation['allocations_by_line'] ?? [] as $itemId => $items) {
+            $itemId = (int)$itemId;
+            $configuredWidth = (float)$usable[$itemId]['roll_width_ft'];
+            foreach ($items as &$allocationRow) {
+                $allocationRow['roll_width_ft'] = $configuredWidth;
+                $allocationRow['item_id'] = $itemId;
+            }
+            unset($allocationRow);
+            $allocationsByItem[$itemId] = $items;
+        }
         $fits[] = $layout + ['required_by_item' => $requiredByItem, 'allocations_by_item' => $allocationsByItem,
             'material_items' => array_map(static fn(int $id): array => ['name' => (string)$usable[$id]['name'], 'roll_width_ft' => (float)$usable[$id]['roll_width_ft']], array_map('intval', array_keys($layout['counts'])))];
     }
@@ -970,6 +1030,7 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
         $aArea = $aWidth * (float)$a['run_ft'] * (int)$a['quantity'];
         $bArea = $bWidth * (float)$b['run_ft'] * (int)$b['quantity'];
         return ($aArea <=> $bArea)
+            ?: ($a['required_linear_ft'] <=> $b['required_linear_ft'])
             ?: ($a['panel_count'] <=> $b['panel_count'])
             ?: ($a['trim_waste_ft'] <=> $b['trim_waste_ft'])
             ?: ($aWidth <=> $bWidth)
@@ -1004,7 +1065,7 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
             : 'Insufficient ' . (string)($shortageItem['name'] ?? 'Tarpaulin roll') . ' stock (requires ' . $requiredFt . ' ft; ' . $availableFt . ' ft available).';
         return ['ok' => false, 'reason' => 'insufficient', 'selection' => null, 'shortage' => [
             'id' => $shortageId, 'name' => (string)($shortageItem['name'] ?? 'Tarpaulin roll'), 'uom' => 'Ft',
-            'required_ft' => $requiredFt, 'available_ft' => $availableFt, 'message' => $message, 'physical' => $physical,
+            'required_ft' => (float)$requiredFt, 'available_ft' => (float)$availableFt, 'message' => $message, 'physical' => $physical,
         ], 'candidates' => $failedLayouts];
     }
     usort($fits, $compareLayouts);

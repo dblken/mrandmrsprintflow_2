@@ -16,8 +16,11 @@ $candidate = static function (int $id, int $rollWidth, int $branch, array $lengt
     return ['id' => $id, 'name' => $rollWidth . 'FT Tarpaulin', 'status' => 'ACTIVE', 'track_by_roll' => 1,
         'unit_of_measure' => 'ft', 'category_name' => 'TARPAULIN', 'branch_id' => $branch, 'open_rolls' => $rolls];
 };
-$resolve = static fn(array $candidates, float $width, float $height, int $qty, array $usedDemand = [], array $usedRolls = []): array =>
-    printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $qty, $usedDemand, $usedRolls);
+$resolve = static fn(array $candidates, float $width, float $height, int $qty, array $usedDemand = [], array $usedRolls = [], bool $joinedCustom = false): array =>
+    printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $qty, $usedDemand, $usedRolls, $joinedCustom);
+$assert(printflow_tarpaulin_custom_size_selected(['dimensions' => 'Others', 'width' => '10', 'height' => '5'])
+    && !printflow_tarpaulin_custom_size_selected(['dimensions' => '3 x 6 ft', 'width' => '3', 'height' => '6']),
+    'The joined-width planner is enabled only by the explicit POS custom-size choice.');
 foreach ([3, 4, 5, 6] as $configuredWidth) {
     $configured = $candidate(10 + $configuredWidth, $configuredWidth, 1, [20]);
     $configured['material_width'] = $configuredWidth * 12;
@@ -89,6 +92,58 @@ $assert($resolve($allWidths, 3, 6, 1)['selection']['item_id'] === 13, 'The small
 $assert($resolve($allWidths, 4, 6, 1)['selection']['item_id'] === 14, 'The smallest equally efficient valid roll is preferred for 4×6.');
 $assert($resolve($allWidths, 5, 6, 1)['selection']['item_id'] === 15, 'The smallest equally efficient valid roll is preferred for 5×6.');
 
+// Wide custom prints may be joined side by side. Every strip is allocated to
+// a specific roll and consumes the full run length for every finished piece.
+$twoFiveCandidates = [$candidate(15, 5, 1, [70, 70], [1, 1])];
+$twoFiveCandidates[0]['material_width'] = 5;
+$twoFiveCandidates[0]['material_dimension_unit'] = 'ft';
+$tenByFive = $resolve($twoFiveCandidates, 10, 5, 14, [], [], true);
+$fiveAllocations = $tenByFive['selection']['roll_allocations_by_item'][15] ?? [];
+$assert($tenByFive['ok'] && $tenByFive['selection']['required_linear_ft'] === 140.0
+    && count($fiveAllocations) === 2
+    && array_column($fiveAllocations, 'roll_id') === [1501, 1502]
+    && array_sum(array_column($fiveAllocations, 'length_ft')) === 140.0
+    && array_reduce($fiveAllocations, static fn($ok, $row) => $ok && $row['roll_width_ft'] === 5.0, true),
+    '10×5 at quantity 14 allocates two configured 5 ft rolls, 70 linear ft each, regardless of saved roll width 1.');
+
+$threeAndFour = [$candidate(13, 3, 1, [70], [1]), $candidate(14, 4, 1, [70], [1])];
+$threeAndFour[0]['material_width'] = 3;
+$threeAndFour[0]['material_dimension_unit'] = 'ft';
+$threeAndFour[1]['material_width'] = 4;
+$threeAndFour[1]['material_dimension_unit'] = 'ft';
+$sevenByTen = $resolve($threeAndFour, 7, 10, 1, [], [], true);
+$mixedAllocations = [];
+foreach ($sevenByTen['selection']['roll_allocations_by_item'] ?? [] as $itemId => $rows) {
+    foreach ($rows as $row) $mixedAllocations[$itemId] = $row;
+}
+$assert($sevenByTen['ok'] && $sevenByTen['selection']['orientation'] === 'original'
+    && $sevenByTen['selection']['required_linear_ft'] === 20.0
+    && isset($mixedAllocations[13], $mixedAllocations[14])
+    && $mixedAllocations[13]['roll_id'] === 1301 && $mixedAllocations[13]['length_ft'] === 10.0
+    && $mixedAllocations[14]['roll_id'] === 1401 && $mixedAllocations[14]['length_ft'] === 10.0,
+    '7×10 joins configured 3 ft plus 4 ft rolls across the 7 ft dimension, assigning 10 linear ft to each roll.');
+
+$rotatedSevenByTen = $resolve([
+    $candidate(14, 4, 1, [70], [1]),
+    $candidate(16, 6, 1, [70], [1]),
+], 7, 10, 1, [], [], true);
+$rotatedRows = [];
+foreach ($rotatedSevenByTen['selection']['roll_allocations_by_item'] ?? [] as $rows) foreach ($rows as $row) $rotatedRows[] = $row;
+$assert($rotatedSevenByTen['ok'] && $rotatedSevenByTen['selection']['orientation'] === 'rotated'
+    && $rotatedSevenByTen['selection']['required_linear_ft'] === 14.0
+    && array_sum(array_column($rotatedRows, 'length_ft')) === 14.0
+    && count($rotatedRows) === 2 && array_column($rotatedRows, 'length_ft') === [7.0, 7.0],
+    '7×10 selects the valid rotated 4 ft plus 6 ft layout when it reduces the linear footage to 14 ft.');
+
+$insufficientJoin = $resolve([$candidate(15, 5, 1, [69], [1])], 10, 5, 14, [], [], true);
+$assert(!$insufficientJoin['ok'] && $insufficientJoin['reason'] === 'insufficient'
+    && $insufficientJoin['shortage']['required_ft'] === 140.0,
+    'Insufficient joined-roll footage remains a blocking shortage with the true demand.');
+
+$standardNoJoin = $resolve([$candidate(13, 3, 1, [100]), $candidate(14, 4, 1, [100]), $candidate(15, 5, 1, [100])], 6, 3, 1);
+$assert(!$standardNoJoin['ok'] && $standardNoJoin['reason'] === 'configuration',
+    'Standard-size Tarpaulin remains on the existing single-width path and does not silently join narrower stock.');
+
 // Multi-roll assignment is explicit and each physical roll contributes its
 // footage at most once. Whole pieces cannot be split across short rolls.
 $multiRoll = $resolve([$candidate(13, 3, 1, [6, 6])], 3, 6, 2);
@@ -154,6 +209,7 @@ $pos = (string)file_get_contents($root . '/staff/pos.php');
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
 $rollService = (string)file_get_contents($root . '/includes/RollService.php');
 $assert(str_contains($validation, 'printflow_tarpaulin_resolve_width_fit(')
+    && str_contains($validation, 'printflow_tarpaulin_custom_size_selected($customization)')
     && str_contains($validation, 'printflow_pos_tarpaulin_open_rolls($itemId, $branchId)')
     && str_contains($validation, 'roll_width_issues')
     && str_contains($validation, "'required' => (float)(\$shortage['required_ft'] ?? 0)")
@@ -174,8 +230,10 @@ $assert(str_contains($pos, 'const tarpaulinDimensionsReady = tarpaulinEarlyStock
     'Tarpaulin early stock checks run as soon as dimensions, quantity, and branch are known without waiting for unrelated required fields.');
 $assert(str_contains($jobService, 'printflow_tarpaulin_saved_roll_fit_selection_for_job(')
     && str_contains($jobService, 'RollService::deductFromValidatedAllocation(')
+    && str_contains($jobService, "['roll_allocations_by_item'] ?? [])[\$itemId]")
+    && str_contains($jobService, '$plannedItemLength')
     && str_contains($rollService, 'id IN ({$placeholders})')
     && str_contains($rollService, 'No other roll was used'),
-    'Completion locks and deducts only the roll IDs carried by the saved POS allocation plan.');
+    'Completion locks and deducts each mixed-width material from only its own saved roll IDs and per-item footage.');
 
 echo "POS Tarpaulin width-fit allocation tests passed.\n";

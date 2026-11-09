@@ -200,8 +200,17 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
             }
         }
     }
-    $demandPlan = printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity, $candidates);
-    $resolved = printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $quantity, $usedByItemDemand, $usedByItemRoll);
+    $allowJoinedWidths = printflow_tarpaulin_custom_size_selected($customization);
+    $demandPlan = printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity, $candidates, $allowJoinedWidths);
+    $resolved = printflow_tarpaulin_resolve_width_fit(
+        $candidates,
+        $width,
+        $height,
+        $quantity,
+        $usedByItemDemand,
+        $usedByItemRoll,
+        $allowJoinedWidths
+    );
     if (($resolved['reason'] ?? '') === 'incompatible') {
         return [
             'ok' => false,
