@@ -7014,8 +7014,21 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const heightVal = String(hh.value).trim();
                     if (fieldKey) {
                         const existing = String(customization[fieldKey] || '').trim();
+                        const otherOption = (() => {
+                            const selectEl = row.querySelector(`select[name="${fieldKey}"]`);
+                            return selectEl ? String(selectEl.getAttribute('data-other-option') || 'Others').trim() : 'Others';
+                        })();
+                        const selectEl = row.querySelector(`select[name="${fieldKey}"]`);
+                        const selectedSelectValue = selectEl ? String(selectEl.value || '').trim() : '';
+                        const hasPricedPresetSelect = !!(
+                            selectEl
+                            && selectedSelectValue !== ''
+                            && selectedSelectValue.toLowerCase() !== otherOption.toLowerCase()
+                            && !/^(others|custom\s*size|customize\s*size)$/i.test(selectedSelectValue)
+                        );
                         const preserveCustomSizeChoice = Number(serviceId) === 36
-                            || /^(others|custom\s*size|customize\s*size)$/i.test(existing);
+                            || /^(others|custom\s*size|customize\s*size)$/i.test(existing)
+                            || hasPricedPresetSelect;
                         if (!preserveCustomSizeChoice) {
                             customization[fieldKey] = widthVal + 'x' + heightVal;
                         }
@@ -8311,7 +8324,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const materialLabel = posCartItemMaterialLabel(item);
                     const showEstimateBesideRemove = showSetPrice && item.price_set !== true;
                     const estimateBesideRemoveHtml = showEstimateBesideRemove
-                        ? `<span class="pos-item-estimate-label" style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Estimated Price: ${formatMoney(unitPrice)}</span>`
+                        ? `<span class="pos-item-estimate-label" style="font-size:12px;font-weight:600;color:#64748b;white-space:nowrap;">Estimated Price: ${formatMoney(confirmedLineTotal)}</span>`
                         : '';
 
                     if (item.customization && typeof item.customization === 'object') {

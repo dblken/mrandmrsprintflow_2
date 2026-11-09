@@ -20,6 +20,7 @@ $assert($invalid['ok'] === false, 'invalid service id rejected');
 $posSource = (string) file_get_contents(__DIR__ . '/../staff/pos.php');
 $assert(str_contains($posSource, 'resolveServiceModalPricing'), 'POS resolves modal pricing before add');
 $assert(str_contains($posSource, 'price: priced.unitPrice'), 'POS sends calculated unit price to cart API');
+$assert(str_contains($posSource, 'hasPricedPresetSelect'), 'POS keeps priced dimension preset value for server pricing');
 $assert(!preg_match('/price:\s*0,\s*\n\s*qty:.*is_service:\s*true/s', $posSource), 'POS no longer hardcodes service price 0 on add');
 
 $cartSource = (string) file_get_contents(__DIR__ . '/../staff/api/pos_cart_handler.php');
