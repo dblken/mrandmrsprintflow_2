@@ -33,6 +33,10 @@ $checks['receive form submits explicit width and unit without a 1-foot fallback'
 $checks['configured physical width is prefilled and required for roll intake'] = strpos($form, 'printflowGetRollWidthDefault(item)') !== false
     && strpos($form, "style.display = isRoll ? 'block' : 'none'") !== false
     && strpos($form, "getElementById('addStockWidth').required = isRoll") !== false;
+$checks['roll intake requires explicit physical-width confirmation in UI and API'] = strpos($form, 'addStockWidthConfirmed') !== false
+    && strpos($form, 'physical_width_confirmed\', \'1\'') !== false
+    && strpos($api, "physical_width_confirmed'] ?? '') !== '1'") !== false
+    && strpos($api, 'Confirm the measured physical roll width before receiving this roll.') !== false;
 $checks['RollService stores width separately from received and remaining length'] = strpos($rollService, 'width_ft, total_length_ft, remaining_length_ft') !== false
     && strpos($rollService, '$widthFt, $totalLength, $totalLength') !== false;
 $correctionStart = strpos($rollService, 'public static function correctRollWidth');
