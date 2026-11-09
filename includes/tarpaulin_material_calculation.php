@@ -5,7 +5,8 @@ require_once __DIR__ . '/pos_quantity_validation.php';
 
 const PRINTFLOW_TARPAULIN_CALCULATION_VERSION = 'linear_ft_v1';
 const PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION = 'panel_joining_v2';
-const PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION = 'roll_fit_v1';
+const PRINTFLOW_TARPAULIN_ROLL_FIT_LEGACY_VERSION = 'roll_fit_v1';
+const PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION = 'roll_fit_v2';
 
 /** Resolve service identity through the persisted job -> order-item link only. */
 function printflow_tarpaulin_authoritative_job_service_id(int $jobId, ?array $knownJob = null): int
@@ -69,6 +70,26 @@ function printflow_tarpaulin_saved_panel_selection_for_job(int $jobId, ?array $k
     $customization = json_decode((string)($rows[0]['customization_data'] ?? ''), true);
     $selection = is_array($customization) ? ($customization['pos_tarpaulin_selection'] ?? null) : null;
     return is_array($selection) && ($selection['version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION ? $selection : null;
+}
+
+/** Load the server-validated, width-fit roll allocation persisted on a POS order line. */
+function printflow_tarpaulin_saved_roll_fit_selection_for_job(int $jobId, ?array $knownJob = null): ?array
+{
+    if (!printflow_tarpaulin_job_is_authoritative_service($jobId, $knownJob)) return null;
+    $job = $knownJob;
+    if ($job === null || !isset($job['order_id'], $job['order_item_id'])) {
+        $rows = db_query('SELECT id, order_id, order_item_id FROM job_orders WHERE id = ? LIMIT 2', 'i', [$jobId]);
+        if (!is_array($rows) || count($rows) !== 1) return null;
+        $job = $rows[0];
+    }
+    $orderId = (int)($job['order_id'] ?? 0);
+    $itemId = (int)($job['order_item_id'] ?? 0);
+    if ($orderId <= 0 || $itemId <= 0) return null;
+    $rows = db_query('SELECT customization_data FROM order_items WHERE order_item_id = ? AND order_id = ? LIMIT 2', 'ii', [$itemId, $orderId]);
+    if (!is_array($rows) || count($rows) !== 1) return null;
+    $customization = json_decode((string)($rows[0]['customization_data'] ?? ''), true);
+    $selection = is_array($customization) ? ($customization['pos_tarpaulin_selection'] ?? null) : null;
+    return is_array($selection) && ($selection['version'] ?? '') === PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION ? $selection : null;
 }
 
 /** Validate the one recognized calculation marker against persisted service identity. */
@@ -239,6 +260,167 @@ function printflow_tarpaulin_calculate_linear_length($width, $height, $finishedQ
         'run_length_per_piece_ft' => (float)$chosen['run_ft'],
         'required_linear_ft' => $requiredLength,
     ];
+}
+
+/**
+ * Calculate Tarpaulin demand while keeping the selected order width as the
+ * minimum usable roll width. Rotation is allowed only when the same roll can
+ * cover both physical dimensions; a narrower roll is never selected by
+ * rotating the job onto its shorter side.
+ */
+function printflow_tarpaulin_width_fit_plan($width, $height, $finishedQuantity, $rollWidth): array
+{
+    $w = printflow_tarpaulin_dimension($width, 'Width');
+    $h = printflow_tarpaulin_dimension($height, 'Height');
+    $q = (int)printflow_pos_parse_positive_quantity($finishedQuantity);
+    $r = printflow_tarpaulin_positive_number($rollWidth, 'Roll width');
+    if ($r + 1.0e-9 < $w) throw new InvalidArgumentException('The Tarpaulin roll is narrower than the selected order width.');
+    $orientation = 'original';
+    $run = $h;
+    if ($r + 1.0e-9 >= $h && $w < $h) {
+        $orientation = 'rotated';
+        $run = $w;
+    }
+    $required = ceil(($run * $q - 1.0e-10) * 1000) / 1000;
+    return [
+        'version' => PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION,
+        'width_ft' => $w,
+        'height_ft' => $h,
+        'finished_quantity' => $q,
+        'roll_width_ft' => $r,
+        'orientation' => $orientation,
+        'run_length_per_piece_ft' => $run,
+        'required_linear_ft' => $required,
+        'print_area_sqft' => $w * $h * $q,
+        'material_area_sqft' => $r * $required,
+    ];
+}
+
+/**
+ * Resolve one full-width roll type and allocate each finished piece to a
+ * specific physical roll. Every candidate roll must be an active, matching
+ * width roll supplied by the branch-scoped inventory loader.
+ */
+function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $height, $quantity, array $usedByItemDemand = [], array $usedByItemRoll = []): array
+{
+    $w = printflow_tarpaulin_dimension($width, 'Width');
+    $h = printflow_tarpaulin_dimension($height, 'Height');
+    $q = (int)printflow_pos_parse_positive_quantity($quantity);
+
+    $requestedBranchId = (int)($candidates[0]['branch_id'] ?? 0);
+    $reconciliation = [];
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate) || $requestedBranchId <= 0 || (int)($candidate['branch_id'] ?? 0) !== $requestedBranchId) continue;
+        foreach ((array)($candidate['roll_width_issues'] ?? []) as $issue) {
+            if (is_array($issue)) $reconciliation[] = $issue + ['item_id' => (int)($candidate['id'] ?? 0), 'item_name' => (string)($candidate['name'] ?? 'Tarpaulin')];
+        }
+        $expectedWidth = printflow_tarpaulin_parse_nominal_width($candidate);
+        if ($expectedWidth <= 0) continue;
+        foreach ((array)($candidate['open_rolls'] ?? []) as $roll) {
+            if (!is_array($roll) || strtoupper(trim((string)($roll['status'] ?? 'OPEN'))) !== 'OPEN'
+                || (float)($roll['remaining_length_ft'] ?? 0) <= 0
+                || (int)($roll['branch_id'] ?? 0) !== $requestedBranchId) continue;
+            $rawWidth = $roll['width_ft'] ?? null;
+            $physicalWidth = is_numeric($rawWidth) ? (float)$rawWidth : 0.0;
+            if (!is_finite($physicalWidth) || $physicalWidth <= 0 || abs($physicalWidth - $expectedWidth) > 0.01) {
+                $reconciliation[] = ['roll_id' => (int)($roll['id'] ?? 0),
+                    'width_ft' => $physicalWidth > 0 ? $physicalWidth : 'missing/invalid',
+                    'expected_width_ft' => $expectedWidth,
+                    'item_name' => (string)($candidate['name'] ?? 'Tarpaulin roll')];
+            }
+        }
+    }
+    if ($reconciliation !== []) {
+        $labels = array_map(static function (array $issue): string {
+            $id = (int)($issue['roll_id'] ?? 0);
+            $width = trim((string)($issue['width_ft'] ?? 'missing'));
+            $item = trim((string)($issue['item_name'] ?? 'Tarpaulin roll'));
+            return $item . ' roll #' . $id . ' (' . $width . ' ft recorded)';
+        }, $reconciliation);
+        return ['ok' => false, 'reason' => 'reconciliation', 'selection' => null, 'shortage' => [
+            'message' => 'Tarpaulin roll width needs reconciliation: ' . implode(', ', $labels) . '. Ask an Admin to verify the physical roll widths.',
+            'roll_width_issues' => $reconciliation,
+        ]];
+    }
+
+    $eligible = [];
+    foreach ($candidates as $candidate) {
+        if (!is_array($candidate) || (int)($candidate['branch_id'] ?? 0) !== $requestedBranchId
+            || strtoupper(trim((string)($candidate['status'] ?? ''))) !== 'ACTIVE') continue;
+        $itemId = (int)($candidate['id'] ?? 0);
+        $rollWidth = printflow_tarpaulin_parse_nominal_width($candidate);
+        if ($itemId <= 0 || $rollWidth + 1.0e-9 < $w) continue;
+        try { $plan = printflow_tarpaulin_width_fit_plan($w, $h, $q, $rollWidth); }
+        catch (InvalidArgumentException $error) { continue; }
+
+        $rolls = array_values(array_filter((array)($candidate['open_rolls'] ?? []), static fn(array $roll): bool =>
+            strtoupper(trim((string)($roll['status'] ?? 'OPEN'))) === 'OPEN'
+            && (int)($roll['branch_id'] ?? 0) === $requestedBranchId
+            && (float)($roll['remaining_length_ft'] ?? 0) > 0));
+        foreach ($rolls as &$roll) {
+            $id = (int)($roll['id'] ?? 0);
+            $remaining = (float)($roll['remaining_length_ft'] ?? 0);
+            $explicit = max(0.0, (float)(($usedByItemRoll[$itemId] ?? [])[$id] ?? 0));
+            $roll['remaining_length_ft'] = max(0.0, $remaining - $explicit);
+        }
+        unset($roll);
+        $explicitUsed = array_sum(array_map('floatval', (array)($usedByItemRoll[$itemId] ?? [])));
+        $legacyDemand = max(0.0, (float)($usedByItemDemand[$itemId] ?? 0) - $explicitUsed);
+        foreach ($rolls as &$roll) {
+            $fifoUse = min((float)$roll['remaining_length_ft'], $legacyDemand);
+            $roll['remaining_length_ft'] = max(0.0, (float)$roll['remaining_length_ft'] - $fifoUse);
+            $legacyDemand -= $fifoUse;
+        }
+        unset($roll);
+
+        $allocation = printflow_tarpaulin_allocate_whole_panels($rolls, [
+            'panel_count_per_piece' => 1,
+            'finished_quantity' => $q,
+            'run_length_per_panel_ft' => ceil(((float)$plan['run_length_per_piece_ft'] - 1.0e-10) * 1000) / 1000,
+        ]);
+        $available = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $rolls));
+        $eligible[] = [
+            'item' => $candidate,
+            'item_id' => $itemId,
+            'roll_width_ft' => $rollWidth,
+            'plan' => $plan,
+            'allocation' => $allocation,
+            'available_ft' => $available,
+            'preference' => [(float)$plan['material_area_sqft'], $rollWidth, $itemId],
+        ];
+    }
+    if ($eligible === []) return ['ok' => false, 'reason' => 'incompatible', 'selection' => null];
+
+    usort($eligible, static fn(array $a, array $b): int => ($a['preference'][0] <=> $b['preference'][0])
+        ?: ($a['preference'][1] <=> $b['preference'][1]) ?: ($a['preference'][2] <=> $b['preference'][2]));
+    foreach ($eligible as $entry) {
+        if (empty($entry['allocation']['ok'])) continue;
+        $itemId = (int)$entry['item_id'];
+        $allocationRows = array_map(static function (array $row) use ($entry): array {
+            $row['roll_width_ft'] = (float)$entry['roll_width_ft'];
+            return $row;
+        }, (array)($entry['allocation']['allocations'] ?? []));
+        return ['ok' => true, 'reason' => '', 'selection' => array_merge($entry['plan'], [
+            'item_id' => $itemId,
+            'item_name' => (string)($entry['item']['name'] ?? 'Tarpaulin roll'),
+            'branch_id' => (int)($entry['item']['branch_id'] ?? 0),
+            'required_by_item' => [$itemId => (float)$entry['plan']['required_linear_ft']],
+            'material_items' => [$itemId => ['name' => (string)($entry['item']['name'] ?? 'Tarpaulin roll'), 'roll_width_ft' => (float)$entry['roll_width_ft']]],
+            'roll_allocations_by_item' => [$itemId => $allocationRows],
+            'width_policy' => 'selected width is the minimum; equal or wider rolls only; pieces are assigned whole to listed physical rolls',
+        ])];
+    }
+
+    $short = $eligible[0];
+    $message = $short['available_ft'] <= 0
+        ? (string)($short['item']['name'] ?? 'Tarpaulin') . ' is out of stock in rolls that meet the selected order width.'
+        : 'Insufficient ' . (string)($short['item']['name'] ?? 'Tarpaulin') . ' stock: required '
+            . rtrim(rtrim(number_format((float)$short['plan']['required_linear_ft'], 3, '.', ''), '0'), '.')
+            . ' ft; available ' . rtrim(rtrim(number_format((float)$short['available_ft'], 3, '.', ''), '0'), '.')
+            . ' ft. Each piece must fit continuously on one eligible roll.';
+    return ['ok' => false, 'reason' => (string)($short['allocation']['reason'] ?? 'insufficient'), 'selection' => null,
+        'shortage' => ['id' => (int)$short['item_id'], 'name' => (string)($short['item']['name'] ?? 'Tarpaulin'),
+            'uom' => 'Ft', 'required_ft' => (float)$short['plan']['required_linear_ft'], 'available_ft' => (float)$short['available_ft'], 'message' => $message]];
 }
 
 /** Stable roll-width preference used by the production picker. */
@@ -718,7 +900,7 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
     usort($fits, $compareLayouts);
     $winner = $fits[0];
     $selection = [
-        'version' => PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION, 'branch_id' => (int)($candidates[0]['branch_id'] ?? 0),
+        'version' => PRINTFLOW_TARPAULIN_ROLL_FIT_LEGACY_VERSION, 'branch_id' => (int)($candidates[0]['branch_id'] ?? 0),
         'width_ft' => $w, 'height_ft' => $h, 'finished_quantity' => $q,
         'orientation' => $winner['orientation'], 'panel_count_per_piece' => $winner['panel_count'],
         'required_linear_ft' => (float)$winner['required_linear_ft'], 'required_by_item' => $winner['required_by_item'],

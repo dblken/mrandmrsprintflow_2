@@ -358,6 +358,95 @@ class RollService {
         }
     }
 
+    /** Deduct actual Tarpaulin usage only from the physical rolls in its validated POS plan. */
+    public static function deductFromValidatedAllocation($itemId, array $allocationPlan, $actualLength, $refType = 'JOB_ORDER', $refId = null, $notes = '', $branchId = null, $transactionDate = null) {
+        global $conn;
+        require_once __DIR__ . '/InventoryManager.php';
+        $itemId = (int)$itemId;
+        $branchId = $branchId !== null ? (int)$branchId : InventoryManager::getCurrentBranchId();
+        $actualLength = (float)$actualLength;
+        $entries = array_values((array)$allocationPlan);
+        if ($itemId <= 0 || $branchId <= 0 || !is_finite($actualLength) || $actualLength <= 0 || $entries === []) {
+            throw new InvalidArgumentException('A valid Tarpaulin item, branch, usage, and validated roll allocation are required.');
+        }
+        $plannedByRoll = [];
+        foreach ($entries as $entry) {
+            $rollId = (int)($entry['roll_id'] ?? 0);
+            $length = (float)($entry['length_ft'] ?? 0);
+            if ($rollId <= 0 || !is_finite($length) || $length <= 0 || isset($plannedByRoll[$rollId])) {
+                throw new RuntimeException('The saved Tarpaulin roll allocation is invalid or duplicated.');
+            }
+            $plannedByRoll[$rollId] = ['length_ft' => $length, 'roll_code' => (string)($entry['roll_code'] ?? ('Roll #' . $rollId)), 'roll_width_ft' => (float)($entry['roll_width_ft'] ?? 0)];
+        }
+        $plannedTotal = array_sum(array_column($plannedByRoll, 'length_ft'));
+        if ($actualLength > $plannedTotal + 0.001) {
+            throw new RuntimeException('Actual Tarpaulin usage exceeds the saved POS roll allocation. Revalidate the job before deduction.');
+        }
+
+        [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', $branchId);
+        $ids = array_keys($plannedByRoll);
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $wasInTransaction = printflow_db_in_transaction($conn);
+        if (!$wasInTransaction && !$conn->begin_transaction()) throw new RuntimeException('Unable to start the validated Tarpaulin deduction transaction.');
+        try {
+            $rolls = db_query(
+                "SELECT id, item_id, branch_id, roll_code, width_ft, remaining_length_ft, status FROM inv_rolls WHERE item_id = ? AND id IN ({$placeholders}) AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC FOR UPDATE",
+                'i' . str_repeat('i', count($ids)) . $branchTypes,
+                array_merge([$itemId], $ids, $branchParams)
+            );
+            if (!is_array($rolls) || count($rolls) !== count($ids)) throw new RuntimeException('One or more rolls in the validated Tarpaulin plan are no longer open at this branch. No other roll was used.');
+            $byId = [];
+            foreach ($rolls as $roll) $byId[(int)$roll['id']] = $roll;
+            foreach ($plannedByRoll as $rollId => $rollPlan) {
+                if (!isset($byId[$rollId])) throw new RuntimeException('A roll in the validated Tarpaulin plan is no longer available at this branch.');
+                $roll = $byId[$rollId];
+                if (!is_numeric($roll['width_ft'] ?? null) || (float)$rollPlan['roll_width_ft'] <= 0
+                    || abs((float)$roll['width_ft'] - (float)$rollPlan['roll_width_ft']) > 0.01) {
+                    throw new RuntimeException('A roll width no longer matches the validated Tarpaulin allocation.');
+                }
+            }
+
+            if ($transactionDate === null || $transactionDate === '') {
+                $jobRows = db_query('SELECT order_id FROM job_orders WHERE id = ? LIMIT 1', 'i', [(int)$refId]) ?: [];
+                $linkedOrderId = $jobRows !== [] ? (int)($jobRows[0]['order_id'] ?? 0) : (int)$refId;
+                if ($linkedOrderId > 0 && function_exists('printflow_store_order_ledger_date')) $transactionDate = printflow_store_order_ledger_date($linkedOrderId);
+            }
+            if (function_exists('printflow_normalize_business_datetime') && $transactionDate !== null && $transactionDate !== '') {
+                $transactionDate = printflow_normalize_business_datetime((string)$transactionDate) ?: $transactionDate;
+            }
+
+            $remaining = $actualLength;
+            $deductions = [];
+            foreach ($entries as $entry) {
+                if ($remaining <= 0.000001) break;
+                $rollId = (int)$entry['roll_id'];
+                $roll = $byId[$rollId];
+                $deduct = min($remaining, (float)$plannedByRoll[$rollId]['length_ft']);
+                if ($deduct > (float)$roll['remaining_length_ft'] + 0.000001) throw new RuntimeException('A roll in the validated Tarpaulin plan has insufficient remaining footage. No other roll was used.');
+                $newRemaining = max(0.0, (float)$roll['remaining_length_ft'] - $deduct);
+                $newStatus = $newRemaining <= 0.01 ? 'FINISHED' : 'OPEN';
+                $finishedAt = $newStatus === 'FINISHED' ? date('Y-m-d H:i:s') : null;
+                $update = $conn->prepare("UPDATE inv_rolls SET remaining_length_ft = ?, status = ?, finished_at = ? WHERE id = ? AND item_id = ? AND status = 'OPEN'");
+                if (!$update) throw new RuntimeException('Unable to prepare the validated Tarpaulin roll update.');
+                $update->bind_param('dssii', $newRemaining, $newStatus, $finishedAt, $rollId, $itemId);
+                if (!$update->execute() || $update->affected_rows !== 1) { $update->close(); throw new RuntimeException('Unable to update a roll in the validated Tarpaulin allocation.'); }
+                $update->close();
+                InventoryManager::recordTransaction($itemId, 'OUT', $deduct, 'ft', $refType, $refId, $rollId,
+                    ($notes !== '' ? $notes : 'Tarpaulin usage') . ' (Roll: ' . (string)($roll['roll_code'] ?? ('Roll #' . $rollId)) . ')',
+                    null, $transactionDate, $branchId);
+                $deductions[] = ['roll_id' => $rollId, 'roll_code' => (string)($roll['roll_code'] ?? ('Roll #' . $rollId)),
+                    'deducted' => $deduct, 'was' => (float)$roll['remaining_length_ft'], 'now' => $newRemaining, 'status' => $newStatus];
+                $remaining -= $deduct;
+            }
+            if ($remaining > 0.001) throw new RuntimeException('The saved Tarpaulin plan could not cover the requested actual usage.');
+            if (!$wasInTransaction && !$conn->commit()) throw new RuntimeException('Unable to commit the validated Tarpaulin deduction.');
+            return $deductions;
+        } catch (Throwable $error) {
+            if (!$wasInTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
+            throw $error;
+        }
+    }
+
     /** Tarpaulin panel deduction: lock FIFO rolls and allocate each whole panel to one roll. */
     public static function deductWholePanelsFIFO($itemId, array $plan, $refType = 'JOB_ORDER', $refId = null, $notes = '', $branchId = null, $transactionDate = null) {
         global $conn;

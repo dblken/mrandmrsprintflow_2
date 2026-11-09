@@ -18,7 +18,7 @@ function printflow_customization_value_text($value): string {
         // "linear_ft_v1, 2, 2, …" must never surface as a customer specification.
         $version = strtolower(trim((string)($value['version'] ?? '')));
         if (
-            in_array($version, ['linear_ft_v1', 'panel_joining_v2'], true)
+            in_array($version, ['linear_ft_v1', 'panel_joining_v2', 'roll_fit_v1', 'roll_fit_v2'], true)
             && (
                 isset($value['item_id'])
                 || isset($value['required_linear_ft'])
@@ -33,7 +33,7 @@ function printflow_customization_value_text($value): string {
         }
         $joined = implode(', ', $parts);
         if (
-            preg_match('/^(?:linear_ft_v1|panel_joining_v2)\b/i', $joined)
+            preg_match('/^(?:linear_ft_v1|panel_joining_v2|roll_fit_v1|roll_fit_v2)\b/i', $joined)
             && preg_match('/\d+\s*,\s*\d+/', $joined)
         ) {
             return '';
@@ -41,7 +41,7 @@ function printflow_customization_value_text($value): string {
         return $joined;
     }
     $text = is_scalar($value) ? trim((string)$value) : '';
-    if (preg_match('/^(?:linear_ft_v1|panel_joining_v2)\b/i', $text)) {
+    if (preg_match('/^(?:linear_ft_v1|panel_joining_v2|roll_fit_v1|roll_fit_v2)\b/i', $text)) {
         return '';
     }
     return $text;

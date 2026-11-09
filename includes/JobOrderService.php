@@ -2092,6 +2092,10 @@ class JobOrderService {
             [(int)$orderId]
         ) ?: [];
         $jobDimensionRow = $jobDimensionRows[0] ?? null;
+        $savedTarpaulinRollFit = $jobDimensionRow
+            ? printflow_tarpaulin_saved_roll_fit_selection_for_job((int)$orderId, $jobDimensionRow)
+            : null;
+        $tarpaulinRollFitDeducted = false;
         $itemsById = [];
         foreach ($materials as $pendingMaterial) {
             $pendingItemId = (int)($pendingMaterial['item_id'] ?? 0);
@@ -2202,7 +2206,23 @@ class JobOrderService {
 
                     try {
                         $rollMetadata = self::decodeMaterialMetadata($m['metadata'] ?? null);
-                        if (($rollMetadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
+                        if (is_array($savedTarpaulinRollFit)) {
+                            $plannedItemId = (int)($savedTarpaulinRollFit['item_id'] ?? 0);
+                            $plannedBranchId = (int)($savedTarpaulinRollFit['branch_id'] ?? 0);
+                            $plannedLength = (float)($savedTarpaulinRollFit['required_linear_ft'] ?? 0);
+                            $plannedAllocations = (array)(($savedTarpaulinRollFit['roll_allocations_by_item'] ?? [])[$itemId] ?? []);
+                            if ($tarpaulinRollFitDeducted || $plannedItemId !== $itemId || $plannedBranchId !== $branchId || $plannedAllocations === []) {
+                                throw new RuntimeException('The assigned Tarpaulin material or branch differs from the validated POS roll plan. No other rolls were used.');
+                            }
+                            if ($lengthNeeded > $plannedLength + 0.001) {
+                                throw new RuntimeException('Actual Tarpaulin usage exceeds the validated POS roll allocation. Revalidate the job before deduction.');
+                            }
+                            $deductionResult = RollService::deductFromValidatedAllocation(
+                                $itemId, $plannedAllocations, $lengthNeeded, 'JOB_ORDER', $orderId,
+                                "Tarpaulin usage deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
+                            );
+                            $tarpaulinRollFitDeducted = true;
+                        } elseif (($rollMetadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
                             $savedPanelPlan = $rollMetadata['tarpaulin_panel_plan'] ?? null;
                             $authoritativePanelPlan = $jobDimensionRow
                                 ? printflow_tarpaulin_saved_panel_selection_for_job((int)$orderId, $jobDimensionRow)

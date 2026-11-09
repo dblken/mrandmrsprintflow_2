@@ -29,7 +29,7 @@ function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
     }
     [$branchSql] = printflow_roll_branch_sql('branch_id', $branchId);
     $rows = db_query(
-        "SELECT id, branch_id, roll_code, width_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
+        "SELECT id, item_id, branch_id, roll_code, width_ft, total_length_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
         'ii',
         [$itemId, $branchId]
     );
@@ -70,16 +70,22 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
         if ($mappedIds !== [] && !in_array($itemId, $mappedIds, true)) continue;
         if (printflow_tarpaulin_parse_nominal_width($row) <= 0) continue;
         $nominalWidth = printflow_tarpaulin_parse_nominal_width($row);
-        $row['open_rolls'] = array_values(array_filter(
-            printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
-            static function (array $roll) use ($nominalWidth): bool {
-                // Newer physical-roll rows record width_ft. Some older rows
-                // leave it at zero; their authoritative item ID/name still
-                // determines width. A positive conflicting width is excluded.
-                $physicalWidth = (float)($roll['width_ft'] ?? 0);
-                return $physicalWidth <= 0 || abs($physicalWidth - $nominalWidth) <= 0.01;
+        $row['open_rolls'] = [];
+        $row['roll_width_issues'] = [];
+        foreach (printflow_pos_tarpaulin_open_rolls($itemId, $branchId) as $roll) {
+            $rawWidth = $roll['width_ft'] ?? null;
+            $physicalWidth = is_numeric($rawWidth) ? (float)$rawWidth : 0.0;
+            if (!is_finite($physicalWidth) || $physicalWidth <= 0 || abs($physicalWidth - $nominalWidth) > 0.01) {
+                $row['roll_width_issues'][] = [
+                    'roll_id' => (int)($roll['id'] ?? 0),
+                    'width_ft' => $physicalWidth > 0 ? $physicalWidth : 'missing/invalid',
+                    'expected_width_ft' => $nominalWidth,
+                    'item_name' => (string)($row['name'] ?? 'Tarpaulin roll'),
+                ];
+                continue;
             }
-        ));
+            $row['open_rolls'][] = $roll;
+        }
         $row['available_ft'] = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $row['open_rolls']));
         $row['branch_id'] = $branchId;
         $candidates[] = $row;
@@ -94,9 +100,9 @@ function printflow_pos_tarpaulin_dimensions(array $customization): array
 }
 
 /**
- * Resolve a feasible mapped Tarpaulin roll-width combination against physical
- * branch rolls. Historical linear_ft_v1 and panel_joining_v2 snapshots remain
- * readable for backward compatibility; new POS validations create roll_fit_v1.
+ * Resolve the least-waste eligible Tarpaulin width against physical branch
+ * rolls. Legacy linear_ft_v1, panel_joining_v2, and roll_fit_v1 selections
+ * remain readable; new validations create roll_fit_v2 with an exact roll plan.
  */
 function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $usedByItemDemand = []): array
 {
@@ -201,14 +207,14 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
             }
         }
     }
-    $resolved = printflow_tarpaulin_resolve_roll_fit($candidates, $width, $height, $quantity, $usedByItemDemand, $usedByItemRoll);
+    $resolved = printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $quantity, $usedByItemDemand, $usedByItemRoll);
     if (($resolved['reason'] ?? '') === 'incompatible') {
         return [
             'ok' => false,
             'reason' => 'incompatible',
             'selection' => null,
             'shortage' => [
-                'message' => 'No active Tarpaulin roll width can fit these dimensions, including rotation.',
+                'message' => 'No active Tarpaulin roll width can cover the selected order width.',
                 'name' => 'Tarpaulin',
                 'uom' => 'Ft',
                 'required' => 0,
