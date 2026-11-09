@@ -1,5 +1,16 @@
 <?php
 /** Roll width input normalization. Stored inv_rolls.width_ft is always feet. */
+function printflow_assert_received_roll_values(array $saved, int $itemId, int $branchId, float $widthFt, float $lengthFt): void
+{
+    foreach (['item_id' => $itemId, 'branch_id' => $branchId, 'width_ft' => $widthFt,
+        'total_length_ft' => $lengthFt, 'remaining_length_ft' => $lengthFt] as $field => $expected) {
+        if (!isset($saved[$field]) || !is_numeric($saved[$field])
+            || abs((float)$saved[$field] - $expected) > 0.000001) {
+            throw new RuntimeException('Roll receipt verification failed for ' . $field . '. No receipt should be committed; an Admin must review the roll schema and submitted measurement.');
+        }
+    }
+}
+
 function printflow_roll_width_to_feet($value, string $unit): float
 {
     $raw = trim((string)$value);

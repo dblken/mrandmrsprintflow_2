@@ -149,6 +149,11 @@ $rollItems = db_query("SELECT id, name FROM inv_items WHERE track_by_roll = 1 AN
                 </select>
             </div>
             <div class="mb-4">
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Measured Physical Roll Width</label>
+                <input type="number" step="any" min="0.001" name="roll_width" required placeholder="Enter verified width" class="w-full p-3 border rounded-xl">
+                <select name="roll_width_unit" required><option value="ft">Feet (ft)</option><option value="in">Inches (in)</option></select>
+            </div>
+            <div class="mb-4">
                 <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Total Length (FT)</label>
                 <input type="number" step="0.01" name="total_length" value="164" required class="w-full p-3 border rounded-xl">
             </div>

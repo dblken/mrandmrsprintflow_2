@@ -3062,10 +3062,26 @@ try {
             $assignmentContext = jo_api_material_context_for_assignment($id, 'JOB');
             $savedAssignmentRows = JobOrderService::getScopedMaterialsPublic($id, false, false);
             $savedAssignmentIds = array_map(static fn(array $row): int => (int)($row['item_id'] ?? 0), $savedAssignmentRows);
-            $selectionErrors = printflow_production_assignment_selection_errors(
-                (int)($assignmentContext['serviceId'] ?? 0),
-                $savedAssignmentIds
-            );
+            $assignmentServiceId = (int)($assignmentContext['serviceId'] ?? 0);
+            $selectionErrors = [];
+            if ($assignmentServiceId === 40) {
+                $savedTarpaulinPlan = printflow_tarpaulin_saved_roll_fit_selection_for_job($id);
+                $plannedIds = is_array($savedTarpaulinPlan)
+                    ? array_values(array_map('intval', array_keys((array)($savedTarpaulinPlan['roll_allocations_by_item'] ?? []))))
+                    : [];
+                $tarpaulinPolicyIds = array_map('intval', array_keys(printflow_production_assignment_selection_registry()[40] ?? []));
+                $assignedTarpaulinIds = array_values(array_intersect($savedAssignmentIds, $tarpaulinPolicyIds));
+                sort($plannedIds, SORT_NUMERIC);
+                sort($assignedTarpaulinIds, SORT_NUMERIC);
+                $matchesSavedPlan = $plannedIds !== [] && $plannedIds === $assignedTarpaulinIds;
+                if (is_array($savedTarpaulinPlan) && $plannedIds !== [] && !$matchesSavedPlan) {
+                    $selectionErrors = ['material' => 'Production Assignment must include every roll material in the validated Tarpaulin allocation plan.'];
+                } elseif (!$matchesSavedPlan) {
+                    $selectionErrors = printflow_production_assignment_selection_errors($assignmentServiceId, $savedAssignmentIds);
+                }
+            } else {
+                $selectionErrors = printflow_production_assignment_selection_errors($assignmentServiceId, $savedAssignmentIds);
+            }
             $assignmentErrors = array_merge($selectionErrors, printflow_job_production_assignment_errors($id));
             if (!empty($assignmentErrors)) {
                 jo_api_json_response([
@@ -3196,7 +3212,12 @@ try {
             foreach (['lamination_item_id', 'lamination_roll_id', 'lamination_length_ft', 'waste_length_ft'] as $derivedKey) {
                 unset($metadata[$derivedKey]);
             }
+            unset($metadata['sticker_roll_allocations'], $metadata['sticker_laminate_version']);
             $isVersionedTarpaulin = false;
+            $savedTarpaulinPlanForAssignment = null;
+            $plannedTarpaulinAllocationRows = [];
+            $savedStickerPlanForAssignment = null;
+            $plannedStickerAllocationRows = [];
             if (!is_finite($qty) || $qty <= 0) {
                 throw new Exception("Material quantity must be positive.");
             }
@@ -3236,14 +3257,28 @@ try {
             $posOrderId = (int)($posJob['order_id'] ?? 0);
             $assignmentJobId = (int)($posJob['job_id'] ?? (strtoupper((string)$orderType) === 'JOB' ? $orderId : 0));
             if ($assignmentJobId > 0) {
-                $selectionPolicy = printflow_production_assignment_selection_registry()[(int)($materialContext['serviceId'] ?? 0)] ?? [];
+                $serviceIdForAssignment = (int)($materialContext['serviceId'] ?? 0);
+                $selectionPolicy = printflow_production_assignment_selection_registry()[$serviceIdForAssignment] ?? [];
                 if ($selectionPolicy !== []) {
                     $existingAssignments = JobOrderService::getScopedMaterialsPublic($assignmentJobId, false, false);
                     $existingAssignmentIds = array_map(static fn(array $row): int => (int)($row['item_id'] ?? 0), $existingAssignments);
-                    $groupErrors = printflow_production_assignment_selection_errors(
-                        (int)$materialContext['serviceId'],
-                        array_merge($existingAssignmentIds, [$itemId])
-                    );
+                    $candidateAssignmentIds = array_values(array_unique(array_merge($existingAssignmentIds, [$itemId])));
+                    $groupErrors = [];
+                    if ($serviceIdForAssignment === 40) {
+                        $savedTarpaulinPlan = printflow_tarpaulin_saved_roll_fit_selection_for_job($assignmentJobId);
+                        $plannedIds = is_array($savedTarpaulinPlan)
+                            ? array_values(array_map('intval', array_keys((array)($savedTarpaulinPlan['roll_allocations_by_item'] ?? []))))
+                            : [];
+                        $tarpaulinPolicyIds = array_map('intval', array_keys($selectionPolicy));
+                        $candidateTarpaulinIds = array_values(array_intersect($candidateAssignmentIds, $tarpaulinPolicyIds));
+                        $groupIsExactSavedPlanSubset = $plannedIds !== []
+                            && array_diff($candidateTarpaulinIds, $plannedIds) === [];
+                        if (!$groupIsExactSavedPlanSubset) {
+                            $groupErrors = printflow_production_assignment_selection_errors($serviceIdForAssignment, $candidateAssignmentIds);
+                        }
+                    } else {
+                        $groupErrors = printflow_production_assignment_selection_errors($serviceIdForAssignment, $candidateAssignmentIds);
+                    }
                     if ($groupErrors !== []) throw new Exception((string)reset($groupErrors));
                 }
             }
@@ -3271,6 +3306,55 @@ try {
                     . ($quantityUom !== '' ? ' (' . $quantityUom . ')' : '')
                     . '.'
                 );
+            }
+            if ((int)($materialContext['serviceId'] ?? 0) === 40 && $assignmentJobId > 0) {
+                $savedTarpaulinPlan = printflow_tarpaulin_saved_roll_fit_selection_for_job($assignmentJobId);
+                $plannedAllocations = is_array($savedTarpaulinPlan)
+                    ? (array)(($savedTarpaulinPlan['roll_allocations_by_item'] ?? [])[$itemId] ?? [])
+                    : [];
+                $plannedFt = array_sum(array_map(
+                    static fn(array $row): float => max(0.0, (float)($row['length_ft'] ?? 0)),
+                    array_filter($plannedAllocations, 'is_array')
+                ));
+                if (!is_array($savedTarpaulinPlan) || (int)($savedTarpaulinPlan['branch_id'] ?? 0) <= 0
+                    || $plannedAllocations === [] || $plannedFt <= 0
+                    || abs((float)$qty - $plannedFt) > 0.001) {
+                    throw new Exception('Tarpaulin assignment quantity must match this material’s saved roll allocation. Refresh the order to rebuild the allocation plan.');
+                }
+                $savedTarpaulinPlanForAssignment = $savedTarpaulinPlan;
+                $plannedTarpaulinAllocationRows = array_map(static function (array $row): array {
+                    return [
+                        'roll_id' => (int)($row['roll_id'] ?? 0),
+                        'roll_code' => (string)($row['roll_code'] ?? ''),
+                        'roll_width_ft' => (float)($row['roll_width_ft'] ?? 0),
+                        'length_ft' => (float)($row['length_ft'] ?? 0),
+                    ];
+                }, array_filter($plannedAllocations, 'is_array'));
+            }
+            if ((int)($materialContext['serviceId'] ?? 0) === 36 && $assignmentJobId > 0) {
+                require_once __DIR__ . '/../includes/pos_sticker_laminate_early_stock.php';
+                $savedStickerPlan = printflow_pos_sticker_saved_laminate_selection_for_job($assignmentJobId);
+                if (is_array($savedStickerPlan) && (int)($savedStickerPlan['item_id'] ?? 0) === $itemId) {
+                    $plannedAllocations = array_values(array_filter((array)($savedStickerPlan['roll_allocations'] ?? []), 'is_array'));
+                    $plannedFt = array_sum(array_map(
+                        static fn(array $row): float => max(0.0, (float)($row['length_ft'] ?? 0)),
+                        $plannedAllocations
+                    ));
+                    if ((int)($savedStickerPlan['branch_id'] ?? 0) <= 0
+                        || $plannedAllocations === [] || $plannedFt <= 0
+                        || abs((float)$qty - $plannedFt) > 0.001) {
+                        throw new Exception('Sticker laminate assignment must use the saved roll allocation for this finish. Refresh the order to rebuild the allocation plan.');
+                    }
+                    $savedStickerPlanForAssignment = $savedStickerPlan;
+                    $plannedStickerAllocationRows = array_map(static function (array $row): array {
+                        return [
+                            'roll_id' => (int)($row['roll_id'] ?? 0),
+                            'roll_code' => (string)($row['roll_code'] ?? ''),
+                            'roll_width_ft' => (float)($row['roll_width_ft'] ?? 0),
+                            'length_ft' => (float)($row['length_ft'] ?? 0),
+                        ];
+                    }, $plannedAllocations);
+                }
             }
             // Plates blank Actual Usage cannot exceed ordered quantity (New Plate / blank-consuming types).
             if ((int)($materialContext['serviceId'] ?? 0) === 39 && $assignmentJobId > 0) {
@@ -3328,6 +3412,21 @@ try {
             }
             $branchId = (int)(JobOrderService::getJobBranchIdPublic($assignmentJobId) ?? 0);
             if ($branchId <= 0) throw new Exception('The order branch could not be identified for material stock validation.');
+            if (is_array($savedTarpaulinPlanForAssignment)) {
+                if ((int)($savedTarpaulinPlanForAssignment['branch_id'] ?? 0) !== $branchId) {
+                    throw new Exception('The saved Tarpaulin roll plan belongs to a different branch. Refresh the order before assigning materials.');
+                }
+                // Rendered allocation details are copied from the server-authored
+                // order-line plan, never trusted from the browser request.
+                $metadata['tarpaulin_roll_allocations'] = $plannedTarpaulinAllocationRows;
+            }
+            if (is_array($savedStickerPlanForAssignment)) {
+                if ((int)($savedStickerPlanForAssignment['branch_id'] ?? 0) !== $branchId) {
+                    throw new Exception('The saved sticker laminate plan belongs to a different branch. Refresh the order before assigning materials.');
+                }
+                $metadata['sticker_laminate_version'] = 'sticker_laminate_v1';
+                $metadata['sticker_roll_allocations'] = $plannedStickerAllocationRows;
+            }
             db_query('SELECT id FROM inv_items WHERE id = ? FOR UPDATE', 'i', [$itemId]);
             $availableStock = (float)InventoryManager::getStockOnHandForUpdate($itemId, $branchId);
             $jobAssignments = JobOrderService::getScopedMaterialsPublic($assignmentJobId, true, false);

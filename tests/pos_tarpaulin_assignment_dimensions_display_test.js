@@ -142,6 +142,21 @@ assert.strictEqual(displayed.Dimensions, '2 × 2 ft', 'customer dimensions remai
 assert.ok(!Object.keys(displayed).some((key) => /tarpaulin selection/i.test(key)),
     'Pos Tarpaulin Selection label is not emitted by dimension enrich');
 
+const wideCustomDisplayed = helpers.staffEnrichDimensionSpecs({
+    width: '10', height: '5', dimensions: 'Others', dimensions_unit: 'ft',
+    pos_tarpaulin_selection: {
+        version: 'roll_fit_v2', width_ft: 10, height_ft: 5, finished_quantity: 10,
+        roll_allocations_by_item: {
+            15: [{ roll_id: 157, roll_width_ft: 5, length_ft: 50 }],
+            16: [{ roll_id: 156, roll_width_ft: 6, length_ft: 50 }]
+        }
+    }
+}, { service_id: 40 });
+assert.strictEqual(wideCustomDisplayed.Dimensions, '10 × 5 ft',
+    'Customer-facing Custom Orders details retain 10×5 ft rather than displaying a configured roll width or stale job width');
+assert.ok(!Object.keys(wideCustomDisplayed).some((key) => /tarpaulin selection/i.test(key)),
+    'The multi-roll allocation remains internal and is not presented as a customer specification');
+
 // PHP normalizer contract
 const php = spawnSync('php', ['-r', `
 require '${path.join(root, 'includes/customization_normalizer.php').replace(/\\/g, '/')}';
@@ -176,16 +191,67 @@ assert.ok(
     'PHP display specs still expose customer dimension values'
 );
 
-// --- Assignment Width/Height side-by-side; no visible Tarpaulin Actual Usage ---
-assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row supports editable Tarpaulin Width/Height');
-assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin Width/Height share one side-by-side row container');
-assert.match(customSource, /display:flex;\s*flex-direction:row/, 'Width and Height render side by side in one row');
+const phpSticker = spawnSync('php', ['-r', `
+require '${path.join(root, 'includes/customization_normalizer.php').replace(/\\/g, '/')}';
+$payload = [
+  'dimensions' => 'Others',
+  'dimensions_width' => '5',
+  'dimensions_height' => '5',
+  'finish' => 'Matte',
+  'sticker_type' => 'Printed',
+  'pos_sticker_laminate_selection' => [
+    'version' => 'sticker_laminate_v1',
+    'item_id' => 21,
+    'item_name' => 'Matte Laminate',
+    'width_ft' => 5,
+    'height_ft' => 5,
+    'finished_quantity' => 1,
+    'roll_width_ft' => 6,
+    'required_linear_ft' => 5,
+    'roll_allocations' => [['roll_id' => 158, 'length_ft' => 5]],
+  ],
+];
+$specs = printflow_customization_display_specs($payload, ['include_quantity' => true]);
+echo json_encode($specs);
+`], { encoding: 'utf8' });
+assert.strictEqual(phpSticker.status, 0, phpSticker.stderr || 'php sticker normalizer failed');
+const stickerSpecs = JSON.parse(phpSticker.stdout || '{}');
+assert.ok(!Object.keys(stickerSpecs).some((key) => /sticker laminate selection/i.test(key)),
+    'PHP display specs hide POS Sticker Laminate Selection');
+assert.ok(Object.values(stickerSpecs).some((value) => /matte/i.test(String(value))),
+    'customer finish remains visible');
+
+// --- Assignment keeps print size visible; width/height are editable customer fields ---
+assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row recalculates from print width/height editors');
+assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin assignment card has a dedicated dimension block');
+assert.match(customSource, /Customer print size:/, 'customer print dimensions are explicitly labeled');
+assert.match(customSource, /Order quantity:/, 'finished-piece quantity is visible to staff');
+assert.match(customSource, /Configured roll width:/, 'inventory roll width is distinct from print width');
+assert.doesNotMatch(customSource, /Planned footage:/, 'planned linear footage stays in metadata, not on the card');
+assert.match(customSource, /Print width \(customer spec, ft\)/, 'print width is editable and labeled separately from roll width');
+assert.match(customSource, /Print height \(customer spec, ft\)/, 'print height is editable and labeled separately from roll width');
+assert.match(customSource, /Tarpaulin customer print width in feet/, 'width input exposes an accessible label');
+assert.match(customSource, /handlePendingStickerLaminateDimensionInput/, 'sticker laminate exposes the same width/height editors');
+assert.match(customSource, /recalculatePendingStickerLaminateFromDimensions/, 'sticker edits revalidate against the saved POS plan');
+assert.match(customSource, />Tarpaulin plan</, 'staff guidance explains allocation and deduction timing');
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"/,
+    'generic Actual Usage input is hidden for sticker laminate rows');
+assert.match(customSource, /'pos_sticker_laminate_selection'/, 'JS hides pos_sticker_laminate_selection');
+assert.match(normalizerSource, /'pos_sticker_laminate_selection'/, 'PHP hides pos_sticker_laminate_selection');
+assert.match(normalizerSource, /sticker_laminate_v1/, 'PHP suppresses sticker laminate payload values');
+assert.match(customSource, /isPendingStickerLaminateMaterial/, 'sticker assignment uses dedicated plan cards');
+assert.match(customSource, /sticker_laminate_ft/, 'sticker assignment stores a dedicated usage method');
+assert.match(customSource, />Laminate plan</, 'sticker staff guidance is concise');
+assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll codes stay out of the UI');
+assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll allocation text is not rendered');
+assert.doesNotMatch(customSource, />Width \(ft\)</, 'legacy Width (ft) label is not used on the assignment card');
 assert.match(customSource, /customer_width_ft/, 'pending materials store customer width separately from inventory qty');
 assert.match(customSource, /customer_height_ft/, 'pending materials store customer height separately from inventory qty');
 assert.match(customSource, /recalculatePendingTarpaulinFromDimensions/, 'editing dimensions recalculates/revalidates roll fit');
+assert.match(customSource, /tarpaulinCalcFromPersistedPlan/, 'multi-roll jobs reuse saved per-item footage when dimensions are unchanged');
 assert.match(customSource, /cannot fit/, 'incompatible dimensions remove/clear the selected roll');
-assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]*Actual Usage:/,
-    'visible Actual Usage input is hidden for Tarpaulin rows');
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"[\s\S]*Actual Usage:/,
+    'visible Actual Usage input is hidden for Tarpaulin and sticker laminate rows');
 assert.match(customSource, /calculated_linear_ft/, 'assignment metadata audits calculated linear-ft deduction separately from dimensions');
 assert.match(pickerSource, /required_linear_ft/, 'picker calculates linear feet consumption');
 assert.match(pickerSource, /unit_of_measure|TARPAULIN \(FT\)|rollWidth/, 'roll fit uses inventory roll width semantics');
@@ -203,9 +269,50 @@ const isTarpMethod = extractObjectMethod(
     'handlePendingTarpaulinDimensionInput(material, field, value) {'
 );
 
+const planHelpersSource = `
+    tarpaulinFinishedQuantityForValidation() {
+        const contextQty = Number((this.materialCompatibilityContext || {}).customerQuantity || 0);
+        const jobQty = Number(this.currentJo?.quantity ?? this.currentJo?.qty ?? 0);
+        return contextQty > 0 ? contextQty : (jobQty > 0 ? jobQty : 0);
+    },
+    tarpaulinDimensionsMatchPersistedPlan(width, height, quantity = null) {
+        const persisted = this.persistedPosTarpaulinSelection();
+        if (!persisted) return false;
+        const qty = Number(quantity ?? this.tarpaulinFinishedQuantityForValidation());
+        if (!(width > 0) || !(height > 0) || !(qty > 0)) return false;
+        return Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001
+            && Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001
+            && Number(persisted.finished_quantity || 0) === Number(qty);
+    },
+    tarpaulinCalcFromPersistedPlan(material, width, height, quantity = null) {
+        const persisted = this.persistedPosTarpaulinSelection();
+        if (!persisted || !material) return null;
+        const itemId = Number(material.item_id || 0);
+        if (itemId <= 0 || !this.tarpaulinDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+        if (persisted.version === 'roll_fit_v2' && persisted.roll_allocations_by_item) {
+            const plannedByItem = persisted.roll_allocations_by_item[itemId] || [];
+            const plannedRollAllocations = plannedByItem.filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+            const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+            if (!(plannedFootage > 0)) return null;
+            const materialMeta = persisted.material_items?.[itemId] || {};
+            return {
+                calc: {
+                    required_linear_ft: plannedFootage,
+                    roll_width_ft: Number(materialMeta.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                    orientation: persisted.orientation || ''
+                },
+                plannedRollAllocations
+            };
+        }
+        return null;
+    },
+    persistedPosTarpaulinSelection() { return null; }
+`;
+
 const runtime = new Function(`return ({
     ${isTarpMethod},
     ${recalcMethod},
+    ${planHelpersSource},
     materialCompatibilityContext: { serviceId: 40, serviceKind: 'tarpaulin', customerQuantity: 1 },
     pendingMaterials: [],
     productionErrors: { material: '' },
@@ -275,8 +382,118 @@ assert.strictEqual(runtime.recalculatePendingTarpaulinFromDimensions(material), 
 assert.strictEqual(runtime.pendingMaterials.length, 0, 'incompatible roll is removed from the assignment queue');
 assert.ok(runtime._alerted, 'staff receives a clear unfit-roll alert');
 
-assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
-    'non-Tarpaulin services retain the Actual Usage input');
+const multiRollPlan = {
+    version: 'roll_fit_v2', branch_id: 1, width_ft: 10, height_ft: 5, finished_quantity: 10,
+    orientation: 'original',
+    material_items: {
+        15: { name: '5ft Tarpaulin', roll_width_ft: 5 },
+        16: { name: '6ft Tarpaulin', roll_width_ft: 6 },
+    },
+    roll_allocations_by_item: {
+        15: [{ roll_id: 157, roll_width_ft: 5, length_ft: 50 }],
+        16: [{ roll_id: 156, roll_width_ft: 6, length_ft: 50 }],
+    },
+};
+const multiRuntime = new Function(`return ({
+    ${isTarpMethod},
+    ${recalcMethod},
+    ${planHelpersSource},
+    materialCompatibilityContext: { serviceId: 40, serviceKind: 'tarpaulin', customerQuantity: 10 },
+    pendingMaterials: [],
+    productionErrors: { material: '' },
+    currentJo: { quantity: 10 },
+    persistedPosTarpaulinSelection() { return ${JSON.stringify(multiRollPlan)}; },
+    getInventoryItem(id) {
+        const names = { 15: '5ft Tarpaulin', 16: '6ft Tarpaulin' };
+        return { id: Number(id), name: names[id] || 'Tarpaulin', unit_of_measure: 'ft', current_stock: 50.1 };
+    },
+    tarpaulinCalculationForItem() {
+        return { required_linear_ft: 100, roll_width_ft: 5, orientation: 'original', run_length_per_piece_ft: 10 };
+    },
+    clearPendingMaterialConfirmationError() {},
+    showStaffAlert() {}
+});`)();
+multiRuntime.pendingMaterials = [
+    { item_id: 15, name: '5ft Tarpaulin', customer_width_ft: 10, customer_height_ft: 5, usage_method: 'tarpaulin_linear_ft', metadata: {} },
+    { item_id: 16, name: '6ft Tarpaulin', customer_width_ft: 10, customer_height_ft: 5, usage_method: 'tarpaulin_linear_ft', metadata: {} },
+];
+assert.strictEqual(multiRuntime.recalculatePendingTarpaulinFromDimensions(multiRuntime.pendingMaterials[0]), true,
+    're-entering saved 10×5 dimensions keeps the 5ft material on its 50 ft plan');
+assert.strictEqual(multiRuntime.pendingMaterials[0].qty, 50,
+    '5ft Tarpaulin stays at 50 ft, not 100 ft full-width miscalculation');
+assert.strictEqual(multiRuntime.recalculatePendingTarpaulinFromDimensions(multiRuntime.pendingMaterials[1]), true,
+    're-entering saved 10×5 dimensions keeps the 6ft material on its 50 ft plan');
+assert.strictEqual(multiRuntime.pendingMaterials[1].qty, 50,
+    '6ft Tarpaulin stays at 50 ft after dimension input events');
+
+assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
+    'non-plan services retain the Actual Usage input');
+
+const stickerPlan = {
+    version: 'sticker_laminate_v1',
+    item_id: 21,
+    branch_id: 1,
+    width_ft: 5,
+    height_ft: 5,
+    finished_quantity: 1,
+    roll_width_ft: 6,
+    required_linear_ft: 5,
+    roll_allocations: [{ roll_id: 158, roll_code: 'MATTE-1', roll_width_ft: 6, length_ft: 5 }],
+};
+const stickerRecalc = extractObjectMethod(
+    customSource,
+    'recalculatePendingStickerLaminateFromDimensions(material) {',
+    'stickerAssignmentPrintSizeLabel(material) {'
+);
+const stickerPlanHelpers = `
+    stickerFinishedQuantityForValidation() { return 1; },
+    stickerDimensionsMatchPersistedPlan(width, height, quantity = null) {
+        const persisted = this.persistedPosStickerLaminateSelection();
+        if (!persisted) return false;
+        const qty = Number(quantity ?? 1);
+        return Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001
+            && Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001
+            && Number(persisted.finished_quantity || 0) === Number(qty);
+    },
+    stickerCalcFromPersistedPlan(material, width, height, quantity = null) {
+        const persisted = this.persistedPosStickerLaminateSelection();
+        if (!persisted || !material || Number(persisted.item_id) !== Number(material.item_id)) return null;
+        if (!this.stickerDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+        const plannedRollAllocations = (persisted.roll_allocations || []).filter(row => row && Number(row.roll_id) > 0);
+        const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+        if (!(plannedFootage > 0)) return null;
+        return {
+            calc: { required_linear_ft: plannedFootage, roll_width_ft: Number(persisted.roll_width_ft || 6) },
+            plannedRollAllocations,
+        };
+    },
+    persistedPosStickerLaminateSelection() { return ${JSON.stringify(stickerPlan)}; },
+    isPendingStickerLaminateMaterial(material) {
+        return !!(material && material.usage_method === 'sticker_laminate_ft');
+    }
+`;
+const stickerRuntime = new Function(`return ({
+    ${stickerRecalc},
+    ${stickerPlanHelpers},
+    clearPendingMaterialConfirmationError() {}
+});`)();
+const stickerMaterial = {
+    item_id: 21,
+    name: 'Matte Laminate',
+    customer_width_ft: 5,
+    customer_height_ft: 5,
+    usage_method: 'sticker_laminate_ft',
+    metadata: {},
+};
+assert.strictEqual(stickerRuntime.recalculatePendingStickerLaminateFromDimensions(stickerMaterial), true,
+    'unchanged sticker dimensions keep saved roll IDs and footage');
+assert.strictEqual(stickerMaterial.qty, 5);
+assert.strictEqual(stickerMaterial.metadata.sticker_roll_allocations[0].roll_id, 158);
+stickerMaterial.customer_width_ft = 6;
+assert.strictEqual(stickerRuntime.recalculatePendingStickerLaminateFromDimensions(stickerMaterial), false,
+    'edited sticker width cannot keep a stale saved allocation');
+assert.strictEqual(stickerMaterial.metadata.sticker_roll_allocations.length, 0);
+assert.match(stickerMaterial.dimension_fit_error || '', /no longer match/i);
 
 console.log(JSON.stringify({
     formula: 'required_linear_ft = min run length after fitting either finished dimension across roll width (linear_ft_v1)',

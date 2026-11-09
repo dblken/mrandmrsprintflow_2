@@ -244,8 +244,17 @@ try {
                     exit;
                 }
                 if ((int)($itemForReceipt['track_by_roll'] ?? 0) === 1) {
+                    if (($_POST['physical_width_confirmed'] ?? '') !== '1') {
+                        http_response_code(400);
+                        echo json_encode([
+                            'success' => false,
+                            'error' => 'Confirm the measured physical roll width before receiving this roll.',
+                            'errors' => ['physical_width_confirmed' => 'Confirm the measured physical roll width before receiving this roll.'],
+                        ]);
+                        exit;
+                    }
                     $widthRaw = $_POST['roll_width'] ?? $_POST['width_ft'] ?? '';
-                    $widthUnit = $_POST['roll_width_unit'] ?? 'ft';
+                    $widthUnit = $_POST['roll_width_unit'] ?? (isset($_POST['width_ft']) ? 'ft' : '');
                     try {
                         $widthFt = printflow_roll_width_to_feet($widthRaw, (string)$widthUnit);
                     } catch (InvalidArgumentException $e) {

@@ -17,6 +17,19 @@ function printflow_customer_receipt_is_available(string $orderStatus, string $pa
  * payment page also treats that server-side state as paid; an unverified
  * payment submission by itself is never sufficient.
  */
+/** Confirmed payment receipt for online custom/service orders (same payment guards as ready-made). */
+function printflow_customer_service_paid_receipt_is_available(
+    array $order,
+    array $providerPayment,
+    array $orderItems,
+    bool $paymentReceived
+): bool {
+    if (!$paymentReceived) {
+        return false;
+    }
+    return printflow_customer_ready_made_receipt_is_available($order, $providerPayment, $orderItems);
+}
+
 function printflow_customer_ready_made_receipt_is_available(array $order, array $providerPayment, array $orderItems): bool {
     $orderId = (int)($order['order_id'] ?? 0);
     if ($orderId <= 0 || $orderItems === []) {

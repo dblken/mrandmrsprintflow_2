@@ -2,8 +2,29 @@
 require_once __DIR__ . '/../includes/roll_width.php';
 
 $checks = [];
+$savedRoll = ['item_id'=>13,'branch_id'=>1,'width_ft'=>2,'total_length_ft'=>50,'remaining_length_ft'=>50];
+printflow_assert_received_roll_values($savedRoll, 13, 1, printflow_roll_width_to_feet(24, 'in'), 50);
+$checks['saved width and footage reload exactly for a 24-inch receipt'] = true;
+foreach (['width_ft'=>1,'branch_id'=>2,'remaining_length_ft'=>49] as $field=>$badValue) {
+    $badRoll = array_replace($savedRoll, [$field=>$badValue]);
+    try {
+        printflow_assert_received_roll_values($badRoll,13,1,2,50);
+        $checks['reject persisted mismatch for '.$field] = false;
+    } catch (RuntimeException $error) {
+        $checks['reject persisted mismatch for '.$field] = str_contains($error->getMessage(),$field);
+    }
+}
+try {
+    printflow_assert_received_roll_values($savedRoll,13,1,2.5,50);
+    $checks['integer column truncation cannot verify as a valid receipt'] = false;
+} catch (RuntimeException $error) {
+    $checks['integer column truncation cannot verify as a valid receipt'] = true;
+}
 $checks['24 inches normalize to 2 feet'] = abs(printflow_roll_width_to_feet('24', 'in') - 2.0) < 0.000001;
 $checks['2 feet remain 2 feet'] = abs(printflow_roll_width_to_feet('2', 'ft') - 2.0) < 0.000001;
+foreach ([3, 4, 5, 6] as $configuredWidth) {
+    $checks[$configuredWidth . ' ft Tarpaulin width normalizes from inches'] = printflow_roll_width_to_feet((string)($configuredWidth * 12), 'in') === (float)$configuredWidth;
+}
 $checks['inch unit aliases convert consistently'] = abs(printflow_roll_width_to_feet('24.0', 'inches') - 2.0) < 0.000001;
 $default = printflow_roll_width_default(['material_width' => '2.000', 'material_dimension_unit' => 'ft']);
 $checks['receive form default uses configured item width'] = $default === ['value' => '2.000', 'unit' => 'ft'];
@@ -24,6 +45,8 @@ $rollApi = file_get_contents(__DIR__ . '/../admin/inventory_rolls_api.php');
 $rollPage = file_get_contents(__DIR__ . '/../admin/inv_rolls_management.php');
 $form = file_get_contents(__DIR__ . '/../admin/inv_items_management.php');
 $rollService = file_get_contents(__DIR__ . '/../includes/RollService.php');
+$checks['shared roll creation rejects missing width before any schema/database operation'] = strpos($rollService, "\$widthFt = printflow_roll_width_to_feet(\$widthFt, 'ft');") < strpos($rollService, 'InventoryManager::ensureBranchScopedSchema();', strpos($rollService, 'public static function createRoll'));
+$checks['secondary roll intake submits and normalizes measured width'] = str_contains($rollPage, 'name="roll_width"') && str_contains($rollPage, 'name="roll_width_unit"') && str_contains($rollApi, 'printflow_roll_width_to_feet($_POST[\'roll_width\']') && str_contains($rollApi, 'createRoll($itemId, $len, $code, $supplier, $widthFt)');
 $checks['API normalizes roll width server-side before receiveStock'] = strpos($api, 'printflow_roll_width_to_feet($widthRaw') !== false
     && strpos($api, '\'width_ft\'  => $widthFt') !== false;
 $checks['receive form submits explicit width and unit without a 1-foot fallback'] = strpos($form, "fd.set('roll_width',") !== false
@@ -33,6 +56,10 @@ $checks['receive form submits explicit width and unit without a 1-foot fallback'
 $checks['configured physical width is prefilled and required for roll intake'] = strpos($form, 'printflowGetRollWidthDefault(item)') !== false
     && strpos($form, "style.display = isRoll ? 'block' : 'none'") !== false
     && strpos($form, "getElementById('addStockWidth').required = isRoll") !== false;
+$checks['roll intake requires explicit physical-width confirmation in UI and API'] = strpos($form, 'addStockWidthConfirmed') !== false
+    && strpos($form, 'physical_width_confirmed\', \'1\'') !== false
+    && strpos($api, "physical_width_confirmed'] ?? '') !== '1'") !== false
+    && strpos($api, 'Confirm the measured physical roll width before receiving this roll.') !== false;
 $checks['RollService stores width separately from received and remaining length'] = strpos($rollService, 'width_ft, total_length_ft, remaining_length_ft') !== false
     && strpos($rollService, '$widthFt, $totalLength, $totalLength') !== false;
 $correctionStart = strpos($rollService, 'public static function correctRollWidth');

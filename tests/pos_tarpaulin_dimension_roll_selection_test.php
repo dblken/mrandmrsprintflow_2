@@ -84,6 +84,7 @@ foreach ([13, 14, 15, 16] as $itemId) {
 $root = dirname(__DIR__);
 $pos = (string)file_get_contents($root . '/staff/pos.php');
 $stock = (string)file_get_contents($root . '/includes/pos_service_stock_validation.php');
+$calculation = (string)file_get_contents($root . '/includes/tarpaulin_material_calculation.php');
 $assert(!str_contains($pos, 'posEnsureTarpaulinDimensionInputs')
     && !str_contains($pos, 'data-pos-tarp-width="1"')
     && !str_contains($pos, 'data-pos-tarp-height="1"')
@@ -98,8 +99,20 @@ $assert(!str_contains($pos, 'Joining Direction')
     && !str_contains($pos, 'pos-tarpaulin-joining-controls'),
     'Joining Direction / Allowance remain absent from POS.');
 $assert(str_contains($stock, 'printflow_pos_tarpaulin_selection(')
-    && str_contains($stock, 'printflow_tarpaulin_resolve_roll_fit(')
-    && str_contains($stock, 'No active Tarpaulin roll width can fit these dimensions, including rotation.'),
-    'POS stock validation resolves a feasible roll-width combination from mapped stock without adding unconfigured seam allowance.');
+    && str_contains($stock, 'printflow_tarpaulin_resolve_width_fit(')
+    && str_contains($calculation, 'Tarpaulin roll widths need reconciliation')
+    && str_contains($calculation, 'usable matching footage for this order'),
+    'POS stock validation resolves only equal-or-wider rolls and returns explicit width reconciliation errors.');
+$assert(str_contains($pos, 'tarpaulin roll widths? need reconciliation|recorded open-roll footage')
+    && str_contains($pos, 'if (Number(serviceId) === 40 && issues.length)')
+    && str_contains($pos, "selection.version === 'roll_fit_v2'")
+    && str_contains($pos, 'Tarpaulin stock could not be verified against a complete roll allocation')
+    && str_contains($pos, 'Tarpaulin stock is available for these dimensions and quantity.'),
+    'Tarpaulin reconciliation details are shown instead of generic zero-stock text, and availability requires a concrete roll_fit_v2 plan.');
+$assert(str_contains($pos, 'requestVersion !== posServiceStockRequestVersion')
+    && str_contains($pos, "body.addEventListener('input'")
+    && str_contains($pos, "body.addEventListener('change'")
+    && str_contains($pos, 'posServiceStockRequestVersion += 1;'),
+    'Dimension/quantity/branch edits schedule fresh checks and invalidate older in-flight results.');
 
 echo "POS Tarpaulin dimension roll selection tests passed.\n";

@@ -17,9 +17,9 @@ $assert(str_contains($validator, 'if ($serviceId === 63)')
 $validateBody = substr($validator, strpos($validator, 'function printflow_pos_validate_service_stock('));
 $assert(str_contains($validateBody, "if (\$serviceId === 40 && !array_key_exists('pos_material_assignments', \$line))")
     && str_contains($validateBody, 'printflow_pos_tarpaulin_selection(')
-    && str_contains($validator, 'printflow_tarpaulin_resolve_roll_fit(')
+    && str_contains($validator, 'printflow_tarpaulin_resolve_width_fit(')
     && str_contains($tarpaulinCalculation, 'printflow_tarpaulin_allocate_cart_panels('),
-    'POS Tarpaulin Add to Order checks feasible physical roll combinations before staff Actual Usage.');
+    'POS Tarpaulin Add to Order checks equal-or-wider physical rolls before staff Actual Usage.');
 $assert(!str_contains($checkout, 'pos_checkout_pair_tarpaulin_cart_lines')
     && str_contains($checkout, 'pos_checkout_validate_assigned_service_materials(')
     && str_contains($checkout, '$pos_pending_orders_snapshot')
@@ -30,7 +30,8 @@ $assert(str_contains($cart, 'pos_cart_validate_service_payload')
     'Tarpaulin service specifications and available explicit assignments still pass through POS validation.');
 $assert(str_contains($validator, 'Tarpaulin service identity changed after stock validation.'), 'A client cannot relabel Tarpaulin cart line identity to evade validation.');
 $jobService = file_get_contents($root . '/includes/JobOrderService.php');
-$assert(str_contains($jobService, 'RollService::deductWholePanelsFIFO') && str_contains($jobService, 'tarpaulin_panel_plan'), 'Only marked v2 Tarpaulin assignments use whole-panel completion deductions.');
+$assert(str_contains($jobService, 'RollService::deductWholePanelsFIFO') && str_contains($jobService, 'tarpaulin_panel_plan')
+    && str_contains($jobService, 'RollService::deductFromValidatedAllocation'), 'Saved POS width-fit plans constrain completion deduction to their allocated roll IDs.');
 $rollService = file_get_contents($root . '/includes/RollService.php');
 $assert(str_contains($rollService, 'printflow_tarpaulin_allocate_whole_panels($rolls, $plan)')
     && str_contains($jobService, "'actual_usage_version'] ?? '') === 'manual_v1'"),

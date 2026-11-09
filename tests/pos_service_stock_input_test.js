@@ -231,12 +231,18 @@ assert.equal(context.posServiceStockDisplayMessage('Tarpaulin stock must be vali
     'Tarpaulin branch/precheck guidance is hidden without changing the failed result');
 assert.equal(context.posServiceStockDisplayMessage('No active Tarpaulin roll width can fit these dimensions, including rotation.', 40), 'No active Tarpaulin roll width can fit these dimensions, including rotation.',
     'a Tarpaulin roll availability failure remains visible');
+const tarpConfigurationFailure = 'No active configured Tarpaulin roll width can cover the selected dimensions. Calculated demand is at least 200 ft; available eligible stock: 0 ft. Review the Tarpaulin roll configuration.';
+assert.equal(context.posServiceStockDisplayMessage(tarpConfigurationFailure, 40), tarpConfigurationFailure,
+    'missing eligible Tarpaulin width configuration remains visible as a configuration issue');
+const tarpReconciliation = 'Tarpaulin roll widths need reconciliation. Recorded open-roll footage: 198.8 ft; usable matching footage for this order: 0 ft. Affected rolls: 3ft Tarpaulin roll #155 (recorded width 1 ft; expected 3 ft; 53.6 ft remaining). Ask an Admin to verify the physical roll widths.';
+assert.equal(context.posServiceStockDisplayMessage(tarpReconciliation, 40), tarpReconciliation,
+    'Tarpaulin roll reconciliation details are visible instead of a generic zero-stock message');
 assert.equal(context.posServiceStockDisplayMessage('This service must have one explicit dimension unit before area-based material consumption can be used.'), 'This service must have one explicit dimension unit before area-based material consumption can be used.',
     'required dimension configuration validation remains visible while informational material explanations are hidden');
 assert.match(stockValidationSource, /if \(!response\.ok \|\| data\.success === false\) \{[\s\S]*?posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\);\s*return \{ valid: false, message \};/,
     'suppressed stock-precheck copy does not turn a failed backend stock/dimension precheck into a valid result');
-assert.match(stockValidationSource, /if \(!validDim\(width\) \|\| !validDim\(height\)\) \{[\s\S]*?posSetServiceStockState\(true, '', posServiceStockDisplayMessage\(message, serviceId\)\);\s*return \{ valid: false, message \};/,
-    'Tarpaulin invalid width or height remains blocking even though its internal precheck message is hidden');
+assert.match(stockValidationSource, /const tarpaulinDimensionsReady = tarpaulinEarlyStock[\s\S]*?if \(tarpaulinEarlyStock\) \{\s*if \(!tarpaulinDimensionsReady\) \{[\s\S]*?return \{ valid: false, message \};/,
+    'Tarpaulin invalid dimensions remain blocking after the selected size is parsed, while incomplete required fields are deferred to field validation');
 assert.match(source, /function confirmServiceModal\(\) \{[\s\S]*?const validationResult = validateServiceOrderForm\(\);[\s\S]*?if \(!validationResult\.valid\) \{[\s\S]*?showValidationErrors\(validationResult\.errors\)[\s\S]*?return;[\s\S]*?posValidateServiceStockNow\(/,
     'normal required-field errors remain visible and block before the Tarpaulin stock precheck');
 

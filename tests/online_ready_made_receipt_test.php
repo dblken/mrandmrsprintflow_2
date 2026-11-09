@@ -15,9 +15,10 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
 $assert(strpos($payment, 'receipt_download=1') !== false && strpos($payment, 'Download Receipt') !== false && strpos($payment, "href=\"<?php echo 'orders.php?receipt_order_id=") === false, 'Paid ready-made payment confirmation downloads through a hidden frame without navigating away.');
 $assert(strpos($itemsApi, '$is_ready_made_product') !== false && strpos($itemsApi, 'printflow_customer_ready_made_receipt_is_available($order, $provider_payment, $items)') !== false, 'Ready-made receipt eligibility uses the shared successful-payment and persisted-item guard.');
 $assert(strpos($itemsApi, "WHERE o.order_id = ? AND o.customer_id = ?") !== false, 'Receipt data remains scoped to the authenticated order owner.');
-$assert(strpos($itemsApi, "printflow_customer_receipt_is_available") !== false, 'Existing service receipt eligibility remains available.');
+$assert(strpos($itemsApi, "printflow_customer_receipt_is_available") !== false, 'Non-service orders keep production-stage receipt eligibility.');
+$assert(strpos($itemsApi, 'printflow_customer_service_paid_receipt_is_available') !== false, 'Paid service orders use payment-verified receipt eligibility.');
 $assert(strpos($orders, 'UNOFFICIAL SALES RECEIPT') !== false, 'Online receipt uses the unofficial receipt label.');
-$assert(strpos($orders, 'Claim Status') !== false && strpos($orders, 'Ready to Claim') !== false, 'Online receipt declares ready-made claim status.');
+$assert(strpos($orders, 'Payment Status') !== false && strpos($orders, 'Claim Status') === false && strpos($orders, 'Ready to Claim') === false, 'Customer receipt keeps payment status without a claim-status line.');
 $assert(strpos($orders, 'Please present this transaction reference when claiming your order.') !== false, 'Online receipt includes claim guidance.');
 $buildStart = strpos($orders, 'function buildReceiptHtml');
 $buildEnd = strpos($orders, 'function openReceiptModal', $buildStart !== false ? $buildStart : 0);

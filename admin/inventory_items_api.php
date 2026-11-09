@@ -14,6 +14,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/inventory_stock_status.php';
 require_once __DIR__ . '/../includes/production_requirements.php';
 require_once __DIR__ . '/../includes/inventory_material_configuration.php';
+require_once __DIR__ . '/../includes/inventory_roll_width_audit.php';
 require_once __DIR__ . '/../includes/service_material_rule_display.php';
 
 printflow_ensure_inv_items_threshold_schema();
@@ -299,9 +300,26 @@ try {
                     $thresholdWarning = 'The configured stock thresholds exceed the current stock quantity. This material will immediately be classified according to the configured thresholds.';
                 }
 
+                $configuredWidthFt = printflow_inventory_item_configured_width_ft($updatedItem);
+                $mismatchBranchId = $branchId > 0 ? $branchId : null;
+                $rollWidthMismatches = printflow_inventory_open_roll_width_mismatches($id, $updatedItem, $mismatchBranchId);
+                $rollWidthNote = $rollWidthMismatches !== []
+                    ? printflow_inventory_roll_width_mismatch_admin_note(
+                        (string)($updatedItem['name'] ?? 'Material'),
+                        $configuredWidthFt,
+                        $rollWidthMismatches
+                    )
+                    : null;
+
                 echo json_encode([
                     'success' => true,
                     'threshold_warning' => $thresholdWarning,
+                    'configured_roll_width_ft' => $configuredWidthFt > 0 ? $configuredWidthFt : null,
+                    'roll_width_mismatches' => $rollWidthMismatches,
+                    'roll_width_note' => $rollWidthNote,
+                    'roll_tracking_url' => $rollWidthMismatches !== []
+                        ? 'inv_rolls_management.php?item_id=' . $id . ($mismatchBranchId ? '&branch_id=' . $mismatchBranchId : '')
+                        : null,
                 ]);
             } else {
                 $starting_stock = max(0, (float)($_POST['starting_stock'] ?? 0));

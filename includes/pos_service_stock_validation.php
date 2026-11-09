@@ -29,7 +29,7 @@ function printflow_pos_tarpaulin_open_rolls(int $itemId, int $branchId): array
     }
     [$branchSql] = printflow_roll_branch_sql('branch_id', $branchId);
     $rows = db_query(
-        "SELECT id, branch_id, roll_code, width_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
+        "SELECT id, item_id, branch_id, roll_code, width_ft, total_length_ft, remaining_length_ft, received_at, status FROM inv_rolls WHERE item_id = ? AND status = 'OPEN' AND remaining_length_ft > 0{$branchSql} ORDER BY received_at ASC, id ASC",
         'ii',
         [$itemId, $branchId]
     );
@@ -56,6 +56,7 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
     $mappedIds = printflow_pos_tarpaulin_mapped_item_ids();
     $rows = db_query(
         "SELECT i.id, i.name, i.status, i.track_by_roll, i.unit_of_measure,
+                i.material_width, i.material_dimension_unit,
                 c.name AS category_name
          FROM inv_items i
          LEFT JOIN inv_categories c ON c.id = i.category_id
@@ -70,16 +71,14 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
         if ($mappedIds !== [] && !in_array($itemId, $mappedIds, true)) continue;
         if (printflow_tarpaulin_parse_nominal_width($row) <= 0) continue;
         $nominalWidth = printflow_tarpaulin_parse_nominal_width($row);
-        $row['open_rolls'] = array_values(array_filter(
-            printflow_pos_tarpaulin_open_rolls($itemId, $branchId),
-            static function (array $roll) use ($nominalWidth): bool {
-                // Newer physical-roll rows record width_ft. Some older rows
-                // leave it at zero; their authoritative item ID/name still
-                // determines width. A positive conflicting width is excluded.
-                $physicalWidth = (float)($roll['width_ft'] ?? 0);
-                return $physicalWidth <= 0 || abs($physicalWidth - $nominalWidth) <= 0.01;
-            }
-        ));
+        $row['open_rolls'] = [];
+        $row['roll_width_issues'] = [];
+        foreach (printflow_pos_tarpaulin_open_rolls($itemId, $branchId) as $roll) {
+            // Tarpaulin roll rows identify footage and branch only. Their width
+            // is taken from this active linked inventory item configuration.
+            $roll['allocation_width_ft'] = $nominalWidth;
+            $row['open_rolls'][] = $roll;
+        }
         $row['available_ft'] = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $row['open_rolls']));
         $row['branch_id'] = $branchId;
         $candidates[] = $row;
@@ -94,9 +93,9 @@ function printflow_pos_tarpaulin_dimensions(array $customization): array
 }
 
 /**
- * Resolve a feasible mapped Tarpaulin roll-width combination against physical
- * branch rolls. Historical linear_ft_v1 and panel_joining_v2 snapshots remain
- * readable for backward compatibility; new POS validations create roll_fit_v1.
+ * Resolve the least-waste eligible Tarpaulin width against physical branch
+ * rolls. Legacy linear_ft_v1, panel_joining_v2, and roll_fit_v1 selections
+ * remain readable; new validations create roll_fit_v2 with an exact roll plan.
  */
 function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $usedByItemDemand = []): array
 {
@@ -201,18 +200,33 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
             }
         }
     }
-    $resolved = printflow_tarpaulin_resolve_roll_fit($candidates, $width, $height, $quantity, $usedByItemDemand, $usedByItemRoll);
+    $allowJoinedWidths = printflow_tarpaulin_custom_size_selected($customization);
+    $demandPlan = printflow_tarpaulin_unallocated_demand_plan($width, $height, $quantity, $candidates, $allowJoinedWidths);
+    $resolved = printflow_tarpaulin_resolve_width_fit(
+        $candidates,
+        $width,
+        $height,
+        $quantity,
+        $usedByItemDemand,
+        $usedByItemRoll,
+        $allowJoinedWidths
+    );
     if (($resolved['reason'] ?? '') === 'incompatible') {
         return [
             'ok' => false,
             'reason' => 'incompatible',
             'selection' => null,
             'shortage' => [
-                'message' => 'No active Tarpaulin roll width can fit these dimensions, including rotation.',
+                'message' => 'No active configured Tarpaulin roll width can cover the selected order width. Calculated demand: '
+                    . rtrim(rtrim(number_format((float)$demandPlan['required_linear_ft'], 3, '.', ''), '0'), '.')
+                    . ' ft; available eligible stock: 0 ft.',
                 'name' => 'Tarpaulin',
                 'uom' => 'Ft',
-                'required' => 0,
+                'required' => (float)$demandPlan['required_linear_ft'],
                 'available' => 0,
+                'required_ft' => (float)$demandPlan['required_linear_ft'],
+                'available_ft' => 0.0,
+                'calculation' => $demandPlan,
             ],
         ];
     }
@@ -225,24 +239,35 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
                 'message' => 'Multiple Tarpaulin rolls fit these dimensions equally. Ask an administrator to review mapped roll widths.',
                 'name' => 'Tarpaulin',
                 'uom' => 'Ft',
-                'required' => 0,
+                'required' => (float)$demandPlan['required_linear_ft'],
                 'available' => 0,
+                'required_ft' => (float)$demandPlan['required_linear_ft'],
+                'available_ft' => 0.0,
+                'calculation' => $demandPlan,
             ],
         ];
     }
     if (($resolved['reason'] ?? '') === 'search_limit') {
         return ['ok' => false, 'reason' => 'search_limit', 'selection' => null, 'shortage' => [
             'message' => 'The Tarpaulin roll-fit search reached its safe calculation limit. Reduce the quantity or ask an administrator to review the roll stock.',
-            'name' => 'Tarpaulin', 'uom' => 'Ft', 'required' => 0, 'available' => 0,
+            'name' => 'Tarpaulin', 'uom' => 'Ft', 'required' => (float)$demandPlan['required_linear_ft'],
+            'available' => 0, 'required_ft' => (float)$demandPlan['required_linear_ft'], 'available_ft' => 0.0,
+            'calculation' => $demandPlan,
         ]];
     }
     if (empty($resolved['ok'])) {
         $shortage = is_array($resolved['shortage'] ?? null) ? $resolved['shortage'] : [];
+        if (($resolved['reason'] ?? '') === 'reconciliation' && !empty($shortage['message'])) {
+            $shortage['message'] .= ' Calculated demand: '
+                . rtrim(rtrim(number_format((float)($shortage['required_ft'] ?? 0), 3, '.', ''), '0'), '.') . ' ft.';
+        }
         return [
             'ok' => false,
             'reason' => (string)($resolved['reason'] ?? 'insufficient'),
             'selection' => null,
-            'shortage' => [
+            // Keep allocator diagnostics (message, affected rolls, recorded
+            // and matching footage) through the shared modal/cart boundary.
+            'shortage' => array_merge($shortage, [
                 'id' => (int)($shortage['id'] ?? 0),
                 'name' => (string)($shortage['name'] ?? 'Tarpaulin roll'),
                 'uom' => 'Ft',
@@ -252,7 +277,7 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
                 'available_ft' => (float)($shortage['available_ft'] ?? 0),
                 'calculation' => $shortage['calculation'] ?? null,
                 'physical' => true,
-            ],
+            ]),
         ];
     }
     return $resolved;
@@ -389,6 +414,8 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
     $tarpaulinPhysicalIssues = [];
     $tarpaulinPlans = [];
     $stickerLaminatePlans = [];
+    $stickerLaminateSelections = [];
+    $stickerLaminateSelectionMeta = [];
     $stickerLaminateItemIds = [];
     $stickerLaminateRollsByItem = [];
     $stickerLaminateReconciliationByItem = [];
@@ -617,7 +644,37 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
                             'received_at' => '',
                         ]] : [];
                     }
-                    $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
+                    try {
+                        $plan = printflow_pos_sticker_laminate_panel_plan($selection, $rollWidthFt);
+                    } catch (InvalidArgumentException $error) {
+                        $itemName = (string)($item['name'] ?? 'Laminate');
+                        $availableFt = $physicalRollValidation
+                            ? printflow_pos_sticker_laminate_roll_balance_ft($rolls)
+                            : max(0.0, (float)InventoryManager::getStockOnHand($itemId, $branchId));
+                        $widthFt = (float)($selection['width_ft'] ?? 0);
+                        $heightFt = (float)($selection['height_ft'] ?? 0);
+                        $qty = (int)($selection['quantity'] ?? 0);
+                        $requiredFt = min($widthFt, $heightFt) * max(1, $qty);
+                        $stickerLaminatePhysicalIssues[] = [
+                            'item_id' => $itemId,
+                            'name' => $itemName,
+                            'uom' => 'ft',
+                            'required' => $requiredFt,
+                            'available' => $availableFt,
+                            'size_does_not_fit' => true,
+                            'message' => printflow_pos_sticker_laminate_size_does_not_fit_message(
+                                $selection,
+                                $rollWidthFt,
+                                $itemName
+                            ),
+                        ];
+                        $tracked = true;
+                        continue;
+                    }
+                    $stickerLaminateSelectionMeta[$lineIndex] = $selection + [
+                        'roll_width_ft' => $rollWidthFt,
+                        'branch_id' => $branchId,
+                    ];
                     $stickerLaminateItemIds[$itemId] = true;
                     $stickerLaminateRollsByItem[$itemId] = $rolls;
                     $stickerLaminatePlans[$lineIndex] = [
@@ -698,11 +755,39 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
             if (!$item || strtoupper((string)($item['status'] ?? '')) !== 'ACTIVE') {
                 throw new RuntimeException('A selected Sticker/Decals laminate is no longer active. Contact an administrator.');
             }
+            if (!empty($allocation['ok'])) {
+                foreach ($plansForItem as $planLineIndex => $planEntry) {
+                    $meta = $stickerLaminateSelectionMeta[$planLineIndex] ?? null;
+                    $rows = array_values(array_filter((array)($allocation['allocations_by_line'][$planLineIndex] ?? []), 'is_array'));
+                    if (!is_array($meta) || $rows === []) continue;
+                    $configuredWidth = (float)($meta['roll_width_ft'] ?? 0);
+                    $rows = array_map(static function (array $row) use ($configuredWidth): array {
+                        $row['roll_width_ft'] = $configuredWidth;
+                        return $row;
+                    }, $rows);
+                    $stickerLaminateSelections[$planLineIndex] = [
+                        'version' => 'sticker_laminate_v1',
+                        'item_id' => $itemId,
+                        'item_name' => (string)$item['name'],
+                        'branch_id' => (int)($meta['branch_id'] ?? $branchId),
+                        'finish' => (string)($meta['finish'] ?? ''),
+                        'width_ft' => (float)($meta['width_ft'] ?? 0),
+                        'height_ft' => (float)($meta['height_ft'] ?? 0),
+                        'finished_quantity' => (int)($meta['quantity'] ?? 0),
+                        'roll_width_ft' => (float)($meta['roll_width_ft'] ?? 0),
+                        'required_linear_ft' => array_sum(array_map(static fn(array $row): float => (float)($row['length_ft'] ?? 0), $rows)),
+                        'roll_allocations' => $rows,
+                    ];
+                }
+            }
             $rolls = $stickerLaminateRollsByItem[$itemId] ?? [];
             $available = isset($stickerLaminateReconciliationByItem[$itemId])
                 ? (float)$stickerLaminateReconciliationByItem[$itemId]['display_balance']
                 : printflow_pos_sticker_laminate_roll_balance_ft($rolls);
             $required = (float)($requiredByItem[$itemId] ?? 0.0);
+            if ($required <= 0) {
+                $required = printflow_pos_sticker_laminate_required_ft_for_plans($plansForItem);
+            }
             $entry = [
                 'item_id' => $itemId,
                 'name' => (string)$item['name'],
@@ -770,6 +855,7 @@ function printflow_pos_validate_service_stock(array $lines, int $branchId): arra
         'materials' => $materials,
         'issues' => $issues,
         'tarpaulin_selections' => $tarpaulinSelections,
+        'sticker_laminate_selections' => $stickerLaminateSelections,
         'material_selections_by_line' => $materialSelectionsByLine,
     ];
 }

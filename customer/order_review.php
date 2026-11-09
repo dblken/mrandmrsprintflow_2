@@ -18,6 +18,7 @@ require_once __DIR__ . '/../includes/ensure_customer_checkout_idempotency_schema
 require_once __DIR__ . '/../includes/product_order_notice.php';
 require_once __DIR__ . '/../includes/service_order_helper.php';
 require_once __DIR__ . '/../includes/service_design_fee.php';
+require_once __DIR__ . '/../includes/order_review_checkout_token.php';
 
 printflow_ensure_customer_checkout_idempotency_schema();
 printflow_ensure_product_order_notice_schema();
@@ -268,11 +269,6 @@ function review_item_customization(array $item): array {
         : $custom;
 }
 
-// ── Accept the "buy_now" item key(s) from session ──────────────────
-function review_checkout_token_is_valid(string $token): bool {
-    return (bool)preg_match('/^[a-f0-9]{64}$/', strtolower(trim($token)));
-}
-
 function review_checkout_existing_order(int $customerId, string $token): int {
     if ($customerId <= 0 || !review_checkout_token_is_valid($token)
         || !db_table_has_column('orders', 'checkout_token')) {
@@ -460,16 +456,7 @@ foreach ($items_to_review as $key => $checkoutItem) {
     } elseif (review_catalog_unit_price($checkoutItem) === null) {
         $productPricingError = 'A product pricing option or base price could not be verified. Return to the product and choose a valid priced option.';
     }
-    $checkout_fingerprint_payload[$key] = [
-        'product_id' => (int)($checkoutItem['product_id'] ?? 0),
-        'variant_id' => (int)($checkoutItem['variant_id'] ?? 0),
-        'quantity' => review_item_quantity($checkoutItem),
-        'branch_id' => (int)($checkoutItem['branch_id'] ?? 0),
-        'unit_price' => (int)round(review_item_unit_price($checkoutItem) * 100),
-        'design_fee' => (int)round((float)($checkoutItem['design_fee'] ?? 0) * 100),
-        'line_total' => (int)round(review_item_estimated_total($checkoutItem) * 100),
-        'customization' => review_item_customization($checkoutItem),
-    ];
+    $checkout_fingerprint_payload[$key] = review_checkout_fingerprint_line($items_to_review[$key] ?? $checkoutItem);
 }
 if ($serviceDesignPricingError === null) {
     foreach ($items_to_review as $checkoutItem) {
@@ -481,17 +468,9 @@ if ($serviceDesignPricingError === null) {
         }
     }
 }
-$checkout_fingerprint = hash('sha256', json_encode([
-    'customer_id' => (int)$customer_id,
-    'items' => $checkout_fingerprint_payload,
-]));
-if (!isset($_SESSION['order_review_checkout_tokens']) || !is_array($_SESSION['order_review_checkout_tokens'])) {
-    $_SESSION['order_review_checkout_tokens'] = [];
-}
-if (empty($_SESSION['order_review_checkout_tokens'][$checkout_fingerprint])) {
-    $_SESSION['order_review_checkout_tokens'][$checkout_fingerprint] = bin2hex(random_bytes(32));
-}
-$checkout_token = (string)$_SESSION['order_review_checkout_tokens'][$checkout_fingerprint];
+$checkout_fingerprint = review_build_checkout_fingerprint((int)$customer_id, $checkout_fingerprint_payload);
+$checkout_attempt_key = review_checkout_attempt_storage_key($item_keys);
+$checkout_token = review_ensure_checkout_token((int)$customer_id, $checkout_fingerprint, $checkout_attempt_key);
 
 // Handle Place Order FIRST (to allow clearing cart without trigger redirect)
 $order_error = null;
@@ -512,8 +491,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order'])) {
     } elseif (!printflow_customer_checkout_idempotency_schema_ready()) {
         error_log('[order_review] checkout blocked: orders.checkout_token schema not ready ref=' . $request_reference);
         $order_error = 'Checkout is temporarily unavailable while a required database update is applied.';
-    } elseif (!review_checkout_token_is_valid($posted_checkout_token)
-        || !hash_equals($checkout_token, $posted_checkout_token)) {
+    } elseif (!review_checkout_token_accept_for_attempt(
+        $posted_checkout_token,
+        $checkout_token,
+        $checkout_attempt_key,
+        $checkout_fingerprint
+    )) {
+        error_log('[order_review] checkout_token_mismatch ref=' . $request_reference
+            . ' customer=' . (int)$customer_id . ' item=' . implode(',', $item_keys));
         $order_error = 'This checkout attempt is no longer valid. Please refresh and try again.';
     } else {
         $checkout_token = $posted_checkout_token;
@@ -1254,9 +1239,14 @@ if ($order_error === null && $productPricingError !== null) {
 
 order_review_post_complete:
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_order']) && review_is_ajax_confirm_request()) {
-    review_json_confirm_response(false, [
+    $ajaxErrorPayload = [
         'error' => $order_error ?? 'Failed to place order. Please try again.',
-    ]);
+    ];
+    if (($order_error ?? '') !== null && str_contains((string)$order_error, 'no longer valid')) {
+        $ajaxErrorPayload['refresh_checkout_token'] = true;
+        $ajaxErrorPayload['checkout_token'] = $checkout_token;
+    }
+    review_json_confirm_response(false, $ajaxErrorPayload);
 }
 
 // Calculate total for all items
@@ -2765,6 +2755,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const msgEl = document.getElementById('pfOrderSuccessMsg');
     const retryBtn = document.getElementById('pfOrderSuccessRetry');
     let submitInFlight = false;
+    let staleCheckoutTokenRetryReady = false;
 
     function showOverlayLoading() {
         if (!overlay || !stage) return;
@@ -2832,6 +2823,13 @@ document.addEventListener('DOMContentLoaded', function() {
         retryBtn.addEventListener('click', function() {
             submitInFlight = false;
             hideOverlay();
+            if (form && isServiceInquire && staleCheckoutTokenRetryReady) {
+                staleCheckoutTokenRetryReady = false;
+                const submit = form.querySelector('button[name="confirm_order"]');
+                if (submit && !submit.disabled) {
+                    submit.click();
+                }
+            }
         });
     }
 
@@ -2898,6 +2896,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         return;
                     }
                     submitInFlight = false;
+                    if (data && data.refresh_checkout_token && data.checkout_token) {
+                        const tokenInput = form.querySelector('input[name="checkout_token"]');
+                        if (tokenInput) {
+                            tokenInput.value = data.checkout_token;
+                        }
+                        staleCheckoutTokenRetryReady = true;
+                    } else {
+                        staleCheckoutTokenRetryReady = false;
+                    }
                     showOverlayError((data && data.error) ? data.error : 'Failed to place order. Please try again.');
                 })
                 .catch(function() {

@@ -1156,6 +1156,11 @@ if (isset($_GET['ajax'])) {
                         <select id="addStockWidthUnit" aria-label="Roll width unit" onchange="updateAddStockUI()" style="max-width:100px;"><option value="ft">ft</option><option value="in">in</option></select>
                     </div>
                     <span id="err-addStockWidth" class="field-error"></span>
+                    <label for="addStockWidthConfirmed" style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:12px;">
+                        <input type="checkbox" id="addStockWidthConfirmed" onchange="updateAddStockUI()" style="margin-top:2px;">
+                        <span>I measured and confirm this roll’s physical width. The configured width is only a starting value.</span>
+                    </label>
+                    <span id="err-addStockWidthConfirmation" class="field-error" style="display:none;"></span>
                     <p style="font-size:10px;color:#3b82f6;margin-top:4px;line-height:1.4;">The received length is entered separately above. Width is stored in feet. Leave code empty to auto-generate.</p>
                 </div>
                 <div class="filter-group">
@@ -3252,6 +3257,7 @@ if (isset($_GET['ajax'])) {
         const rollWidthDefault = printflowGetRollWidthDefault(item);
         document.getElementById('addStockWidth').value = rollWidthDefault.value;
         document.getElementById('addStockWidthUnit').value = rollWidthDefault.unit;
+        document.getElementById('addStockWidthConfirmed').checked = false;
         document.getElementById('addStockNotes').value = '';
         document.getElementById('addStockQtyError').style.display = 'none';
         const errCostEl = document.getElementById('err-addStockUnitCost');
@@ -3265,6 +3271,7 @@ if (isset($_GET['ajax'])) {
         document.getElementById('addStockRollGroup').style.display = isRoll ? 'block' : 'none';
         document.getElementById('addStockWidth').required = isRoll;
         document.getElementById('addStockWidthUnit').required = isRoll;
+        document.getElementById('addStockWidthConfirmed').required = isRoll;
         
         updateAddStockUI();
         document.getElementById('addStockModal').style.display = 'flex';
@@ -3411,6 +3418,13 @@ if (isset($_GET['ajax'])) {
         const isRoll = document.getElementById('addStockIsRoll')?.value == 1;
         const widthErrorEl = document.getElementById('err-addStockWidth');
         const rollWidthCheck = isRoll ? validateAddStockRollWidth() : { ok: true };
+        const widthConfirmation = document.getElementById('addStockWidthConfirmed');
+        const widthConfirmationError = document.getElementById('err-addStockWidthConfirmation');
+        const widthConfirmed = !isRoll || widthConfirmation?.checked === true;
+        if (widthConfirmationError) {
+            widthConfirmationError.textContent = widthConfirmed ? '' : 'Confirm the measured physical width before receiving this roll.';
+            widthConfirmationError.style.display = widthConfirmed ? 'none' : 'block';
+        }
         if (widthErrorEl) {
             widthErrorEl.textContent = rollWidthCheck.ok ? '' : rollWidthCheck.message;
             widthErrorEl.style.display = rollWidthCheck.ok ? 'none' : 'block';
@@ -3470,7 +3484,7 @@ if (isset($_GET['ajax'])) {
             costPreviewEl.textContent = 'New Estimated Unit Cost: \u20B1' + cUpdated.toFixed(2);
         }
 
-        if (!rollWidthCheck.ok) {
+        if (!rollWidthCheck.ok || !widthConfirmed) {
             if (btn) btn.disabled = true;
             return;
         }
@@ -3734,12 +3748,18 @@ if (isset($_GET['ajax'])) {
         const qtyCheck = validateAddStockQtyString(qtyStr, uomType);
         const unitCost = parseFloat(document.getElementById('addStockUnitCost')?.value || '0');
         const rollWidthCheck = isRoll ? validateAddStockRollWidth() : { ok: true };
+        const widthConfirmed = !isRoll || document.getElementById('addStockWidthConfirmed')?.checked === true;
 
-        if (!rollWidthCheck.ok) {
+        if (!rollWidthCheck.ok || !widthConfirmed) {
             const errWidthEl = document.getElementById('err-addStockWidth');
             if (errWidthEl) {
-                errWidthEl.textContent = rollWidthCheck.message;
-                errWidthEl.style.display = 'block';
+                errWidthEl.textContent = rollWidthCheck.ok ? '' : rollWidthCheck.message;
+                errWidthEl.style.display = rollWidthCheck.ok ? 'none' : 'block';
+            }
+            const confirmationError = document.getElementById('err-addStockWidthConfirmation');
+            if (confirmationError) {
+                confirmationError.textContent = widthConfirmed ? '' : 'Confirm the measured physical width before receiving this roll.';
+                confirmationError.style.display = widthConfirmed ? 'none' : 'block';
             }
             btn.disabled = false; btn.textContent = 'Receive IN';
             return;
@@ -3783,6 +3803,7 @@ if (isset($_GET['ajax'])) {
             fd.set('roll_code', rollCode);
             fd.set('roll_width', String(document.getElementById('addStockWidth').value).trim());
             fd.set('roll_width_unit', document.getElementById('addStockWidthUnit').value);
+            fd.set('physical_width_confirmed', '1');
         }
 
         try {
@@ -3899,6 +3920,17 @@ if (isset($_GET['ajax'])) {
                 btn.textContent = originalText;
                 closeModal();
                 fetchUpdatedTable();
+                if (data.threshold_warning) {
+                    window.alert(data.threshold_warning);
+                }
+                if (data.roll_width_note) {
+                    const go = window.confirm(
+                        data.roll_width_note + '\n\nOpen Roll Tracking now to correct verified roll widths?'
+                    );
+                    if (go && data.roll_tracking_url) {
+                        window.location.href = data.roll_tracking_url;
+                    }
+                }
             } else { 
                 if (data.errors) {
                     for (let key in data.errors) {

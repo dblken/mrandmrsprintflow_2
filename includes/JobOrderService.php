@@ -9,6 +9,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/functions.php';
 require_once __DIR__ . '/InventoryManager.php';
 require_once __DIR__ . '/tarpaulin_material_calculation.php';
+require_once __DIR__ . '/pos_sticker_laminate_early_stock.php';
 require_once __DIR__ . '/RollService.php';
 require_once __DIR__ . '/NotificationService.php';
 require_once __DIR__ . '/revision_workflow.php';
@@ -1244,7 +1245,17 @@ class JobOrderService {
             $dimensions = $custom['dimensions'] ?? $custom['Size'] ?? '';
             $width_ft = 0.0;
             $height_ft = 0.0;
-            if ($dimensions && (strpos($dimensions, 'x') !== false || strpos($dimensions, '×') !== false)) {
+            $selectionServiceId = (int)($custom['service_id'] ?? 0);
+            if ($selectionServiceId <= 0 && function_exists('printflow_pos_material_selection_service_id_for_label')) {
+                $selectionServiceId = printflow_pos_material_selection_service_id_for_label($service_type);
+            }
+            if ($selectionServiceId === 40) {
+                // POS custom-size orders keep the chosen dimensions in separate
+                // width/height fields while `dimensions` is the sentinel "Others".
+                // Normalize those customer values before creating the job row;
+                // never replace the print width with an item's configured roll width.
+                [$width_ft, $height_ft] = printflow_tarpaulin_normalize_dimensions($custom);
+            } elseif ($dimensions && (strpos($dimensions, 'x') !== false || strpos($dimensions, '×') !== false)) {
                 $d_parts = preg_split('/[x×]/u', strtolower($dimensions));
                 $width_ft = (float)(trim($d_parts[0] ?? 0));
                 $height_ft = (float)(trim($d_parts[1] ?? 0));
@@ -1255,7 +1266,6 @@ class JobOrderService {
             $unit_price = (float)($item['unit_price'] ?? 0);
             $estimatedTotal = printflow_order_item_calculated_line_total($item);
 
-            $selectionServiceId = (int)($custom['service_id'] ?? 0);
             $autoMaterials = self::posSelectedMaterialsForCustomization($selectionServiceId, $custom);
 
             try {
@@ -2092,6 +2102,43 @@ class JobOrderService {
             [(int)$orderId]
         ) ?: [];
         $jobDimensionRow = $jobDimensionRows[0] ?? null;
+        $savedTarpaulinRollFit = $jobDimensionRow
+            ? printflow_tarpaulin_saved_roll_fit_selection_for_job((int)$orderId, $jobDimensionRow)
+            : null;
+        if (is_array($savedTarpaulinRollFit)) {
+            $planWidth = (float)($savedTarpaulinRollFit['width_ft'] ?? 0);
+            $planHeight = (float)($savedTarpaulinRollFit['height_ft'] ?? 0);
+            $planQuantity = (int)($savedTarpaulinRollFit['finished_quantity'] ?? 0);
+            if ((int)($savedTarpaulinRollFit['branch_id'] ?? 0) !== $branchId
+                || $planWidth <= 0 || $planHeight <= 0 || $planQuantity <= 0
+                || abs((float)($jobDimensionRow['width_ft'] ?? 0) - $planWidth) > 0.001
+                || abs((float)($jobDimensionRow['height_ft'] ?? 0) - $planHeight) > 0.001
+                || (int)($jobDimensionRow['quantity'] ?? 0) !== $planQuantity) {
+                throw new RuntimeException('The saved Tarpaulin allocation no longer matches the job dimensions, quantity, or branch. Revalidate before deduction.');
+            }
+        }
+        $savedStickerLaminate = $jobDimensionRow
+            ? printflow_pos_sticker_saved_laminate_selection_for_job((int)$orderId, $jobDimensionRow)
+            : null;
+        if (is_array($savedStickerLaminate) && (int)($savedStickerLaminate['branch_id'] ?? 0) !== $branchId) {
+            throw new RuntimeException('The saved sticker laminate allocation belongs to a different branch. Revalidate before deduction.');
+        }
+        if (is_array($savedStickerLaminate) && $processMaterials) {
+            $plannedStickerItemId = (int)($savedStickerLaminate['item_id'] ?? 0);
+            $allStickerAssignments = self::getScopedMaterials((int)$orderId, false, false);
+            $stickerAssignmentFound = false;
+            foreach ($allStickerAssignments as $stickerAssignment) {
+                if ((int)($stickerAssignment['item_id'] ?? 0) === $plannedStickerItemId) {
+                    $stickerAssignmentFound = true;
+                    break;
+                }
+            }
+            if (!$stickerAssignmentFound) {
+                throw new RuntimeException('The saved sticker laminate allocation is missing from Production Assignment. No inventory was deducted.');
+            }
+        }
+        $tarpaulinRollFitDeducted = [];
+        $stickerLaminateDeducted = [];
         $itemsById = [];
         foreach ($materials as $pendingMaterial) {
             $pendingItemId = (int)($pendingMaterial['item_id'] ?? 0);
@@ -2101,6 +2148,24 @@ class JobOrderService {
             $pendingItem = InventoryManager::getItem($pendingItemId);
             if ($pendingItem) {
                 $itemsById[$pendingItemId] = $pendingItem;
+            }
+        }
+        if (is_array($savedTarpaulinRollFit)) {
+            $plannedTarpaulinIds = array_values(array_map('intval', array_keys((array)($savedTarpaulinRollFit['roll_allocations_by_item'] ?? []))));
+            $assignedPlannedIds = [];
+            foreach ($materials as $assignment) {
+                $assignedItemId = (int)($assignment['item_id'] ?? 0);
+                $assignedItem = $itemsById[$assignedItemId] ?? null;
+                if (!$assignedItem || empty($assignedItem['track_by_roll'])) continue;
+                if (!in_array($assignedItemId, $plannedTarpaulinIds, true)) {
+                    throw new RuntimeException('A Tarpaulin roll assignment is not included in the saved POS allocation plan. No inventory was deducted.');
+                }
+                $assignedPlannedIds[$assignedItemId] = true;
+            }
+            foreach ($plannedTarpaulinIds as $plannedItemId) {
+                if (!isset($assignedPlannedIds[$plannedItemId])) {
+                    throw new RuntimeException('A Tarpaulin material from the saved multi-roll allocation is missing in Production Assignment. No inventory was deducted.');
+                }
             }
         }
         $debugLog('materials_loaded', [
@@ -2202,7 +2267,30 @@ class JobOrderService {
 
                     try {
                         $rollMetadata = self::decodeMaterialMetadata($m['metadata'] ?? null);
-                        if (($rollMetadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
+                        if (is_array($savedTarpaulinRollFit)) {
+                            $plannedBranchId = (int)($savedTarpaulinRollFit['branch_id'] ?? 0);
+                            $plannedAllocations = (array)(($savedTarpaulinRollFit['roll_allocations_by_item'] ?? [])[$itemId] ?? []);
+                            $plannedItemId = (int)($savedTarpaulinRollFit['item_id'] ?? 0);
+                            $plannedItemLength = array_sum(array_map(
+                                static fn(array $allocation): float => max(0.0, (float)($allocation['length_ft'] ?? 0)),
+                                array_filter($plannedAllocations, 'is_array')
+                            ));
+                            if (!empty($tarpaulinRollFitDeducted[$itemId])
+                                || ($plannedItemId > 0 && $plannedItemId !== $itemId)
+                                || $plannedBranchId !== $branchId
+                                || $plannedAllocations === []
+                                || $plannedItemLength <= 0) {
+                                throw new RuntimeException('The assigned Tarpaulin material or branch differs from the validated POS roll plan. No other rolls were used.');
+                            }
+                            if ($lengthNeeded > $plannedItemLength + 0.001) {
+                                throw new RuntimeException('Actual Tarpaulin usage exceeds this material’s saved roll allocation. Revalidate the job before deduction.');
+                            }
+                            $deductionResult = RollService::deductFromValidatedAllocation(
+                                $itemId, $plannedAllocations, $lengthNeeded, 'JOB_ORDER', $orderId,
+                                "Tarpaulin usage deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
+                            );
+                            $tarpaulinRollFitDeducted[$itemId] = true;
+                        } elseif (($rollMetadata['tarpaulin_calculation_version'] ?? '') === PRINTFLOW_TARPAULIN_PANEL_CALCULATION_VERSION) {
                             $savedPanelPlan = $rollMetadata['tarpaulin_panel_plan'] ?? null;
                             $authoritativePanelPlan = $jobDimensionRow
                                 ? printflow_tarpaulin_saved_panel_selection_for_job((int)$orderId, $jobDimensionRow)
@@ -2218,6 +2306,24 @@ class JobOrderService {
                                 $m['item_id'], $savedPanelPlan, 'JOB_ORDER', $orderId,
                                 "Tarpaulin whole-panel cuts deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
                             );
+                        } elseif (is_array($savedStickerLaminate) && (int)($savedStickerLaminate['item_id'] ?? 0) === $itemId) {
+                            $plannedAllocations = array_values(array_filter((array)($savedStickerLaminate['roll_allocations'] ?? []), 'is_array'));
+                            $plannedLength = array_sum(array_map(
+                                static fn(array $allocation): float => max(0.0, (float)($allocation['length_ft'] ?? 0)),
+                                $plannedAllocations
+                            ));
+                            if (!empty($stickerLaminateDeducted[$itemId])
+                                || (int)($savedStickerLaminate['branch_id'] ?? 0) !== $branchId
+                                || $plannedAllocations === []
+                                || $plannedLength <= 0
+                                || abs($lengthNeeded - $plannedLength) > 0.001) {
+                                throw new RuntimeException('The assigned sticker laminate does not match the validated POS roll plan. No other rolls were used.');
+                            }
+                            $deductionResult = RollService::deductFromValidatedAllocation(
+                                $itemId, $plannedAllocations, $lengthNeeded, 'JOB_ORDER', $orderId,
+                                "Sticker laminate usage deducted for {$jobLabel}", $branchId, $ledgerTransactionDate
+                            );
+                            $stickerLaminateDeducted[$itemId] = true;
                         } else {
                             // Historical and linear_ft_v1 assignments retain aggregate FIFO behavior.
                             $deductionResult = RollService::deductFIFO(

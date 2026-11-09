@@ -3201,29 +3201,96 @@ $online_closed_count = 0;
                                             </div>
                                         </div>
 
+                                        <div x-show="pendingMaterials.length > 0 && isCurrentTarpaulinService()"
+                                             class="pos-tarp-assignment-guide" role="note"
+                                             style="margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-size:11px;line-height:1.45;">
+                                            <div style="font-weight:800;color:#0f172a;margin-bottom:4px;">Tarpaulin plan</div>
+                                            <div x-text="tarpaulinAssignmentStaffGuidance()"></div>
+                                        </div>
+                                        <div x-show="pendingMaterials.length > 0 && isCurrentStickerLaminateService()"
+                                             class="pos-sticker-assignment-guide" role="note"
+                                             style="margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-size:11px;line-height:1.45;">
+                                            <div style="font-weight:800;color:#0f172a;margin-bottom:4px;">Laminate plan</div>
+                                            <div x-text="stickerAssignmentStaffGuidance()"></div>
+                                        </div>
                                         <div x-show="pendingMaterials.length > 0" style="display:flex; flex-direction:column; gap:6px;">
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
-                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:row; align-items:flex-end; gap:8px; margin-top:6px; width:100%;">
-                                                            <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Width (ft)
-                                                                <input type="number" min="0.01" step="any" inputmode="decimal"
-                                                                       :value="pm.customer_width_ft"
-                                                                       @input="handlePendingTarpaulinDimensionInput(pm, 'width', $event.target.value)"
-                                                                       aria-label="Tarpaulin customer width in feet"
-                                                                       style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
-                                                            </label>
-                                                            <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Height (ft)
-                                                                <input type="number" min="0.01" step="any" inputmode="decimal"
-                                                                       :value="pm.customer_height_ft"
-                                                                       @input="handlePendingTarpaulinDimensionInput(pm, 'height', $event.target.value)"
-                                                                       aria-label="Tarpaulin customer height in feet"
-                                                                       style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
-                                                            </label>
+                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:column; gap:5px; margin-top:6px; width:100%;">
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Customer print size:</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentPrintSizeLabel(pm)"></span>
+                                                            </div>
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Order quantity:</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentOrderQuantityLabel()"></span>
+                                                                <span style="color:#64748b;font-weight:600;"> finished piece(s)</span>
+                                                            </div>
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Configured roll width:</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentRollWidthLabel(pm)"></span>
+                                                            </div>
+                                                            <div class="pos-assignment-print-dims" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                                                <label style="display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">
+                                                                    Print width (customer spec, ft)
+                                                                    <input type="number" min="0.01" step="any" inputmode="decimal"
+                                                                           :value="pm.customer_width_ft"
+                                                                           @input="handlePendingTarpaulinDimensionInput(pm, 'width', $event.target.value)"
+                                                                           aria-label="Tarpaulin customer print width in feet"
+                                                                           style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
+                                                                </label>
+                                                                <label style="display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">
+                                                                    Print height (customer spec, ft)
+                                                                    <input type="number" min="0.01" step="any" inputmode="decimal"
+                                                                           :value="pm.customer_height_ft"
+                                                                           @input="handlePendingTarpaulinDimensionInput(pm, 'height', $event.target.value)"
+                                                                           aria-label="Tarpaulin customer print height in feet"
+                                                                           style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
+                                                                </label>
+                                                            </div>
+                                                            <div x-show="tarpaulinAssignmentDimensionsAreLocked(pm)" style="color:#64748b;font-size:10px;line-height:1.35;">
+                                                                Joined-width POS plan: changing width or height requires a new validated allocation.
+                                                            </div>
                                                         </div>
-                                                        <div x-show="!isPendingTarpaulinMaterial(pm)" style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
-                                                        <label x-show="!isPendingTarpaulinMaterial(pm)" style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
+                                                        <div x-show="isPendingStickerLaminateMaterial(pm)" class="pos-sticker-assignment-dims" style="display:flex; flex-direction:column; gap:5px; margin-top:6px; width:100%;">
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Sticker size:</span>
+                                                                <span style="font-weight:800;" x-text="stickerAssignmentPrintSizeLabel(pm)"></span>
+                                                            </div>
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Order quantity:</span>
+                                                                <span style="font-weight:800;" x-text="stickerAssignmentOrderQuantityLabel()"></span>
+                                                            </div>
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Configured roll width:</span>
+                                                                <span style="font-weight:800;" x-text="stickerAssignmentRollWidthLabel(pm)"></span>
+                                                            </div>
+                                                            <div class="pos-assignment-print-dims" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                                                <label style="display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">
+                                                                    Print width (customer spec, ft)
+                                                                    <input type="number" min="0.01" step="any" inputmode="decimal"
+                                                                           :value="pm.customer_width_ft"
+                                                                           @input="handlePendingStickerLaminateDimensionInput(pm, 'width', $event.target.value)"
+                                                                           aria-label="Sticker customer print width in feet"
+                                                                           style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
+                                                                </label>
+                                                                <label style="display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">
+                                                                    Print height (customer spec, ft)
+                                                                    <input type="number" min="0.01" step="any" inputmode="decimal"
+                                                                           :value="pm.customer_height_ft"
+                                                                           @input="handlePendingStickerLaminateDimensionInput(pm, 'height', $event.target.value)"
+                                                                           aria-label="Sticker customer print height in feet"
+                                                                           style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
+                                                                </label>
+                                                            </div>
+                                                            <div style="color:#64748b;font-size:10px;line-height:1.35;">
+                                                                Saved roll allocation from POS; inventory deducts at job completion.
+                                                            </div>
+                                                        </div>
+                                                        <div x-show="!isPendingTarpaulinMaterial(pm) && !isPendingStickerLaminateMaterial(pm)" style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
+                                                        <label x-show="!isPendingTarpaulinMaterial(pm) && !isPendingStickerLaminateMaterial(pm)" style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
                                                             <input type="number" min="0.001" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                    style="width:84px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                             <span x-text="pm.uom"></span>
@@ -4544,10 +4611,25 @@ window.pfServiceFieldCatalog = (() => {
                 if (posterUsageError) return posterUsageError;
                 const item = this.getInventoryItem(material.item_id);
                 if (!item) return '';
-                const available = Number(item.current_stock || 0);
-                const needed = this.getMaterialRequiredStock(material.item_id, material.qty);
                 const uom = material.uom || item.unit_of_measure || 'units';
-                if (!(needed > 0) || !(needed > available)) return '';
+                const needed = this.getMaterialRequiredStock(material.item_id, material.qty);
+                if (!(needed > 0)) return '';
+                if (this.isPendingTarpaulinMaterial(material)) {
+                    const allocations = Array.isArray(material.metadata?.tarpaulin_roll_allocations)
+                        ? material.metadata.tarpaulin_roll_allocations.filter(row => row && Number(row.roll_id) > 0)
+                        : [];
+                    if (allocations.length === 1) {
+                        const plannedFt = Number(allocations[0].length_ft || needed);
+                        const rollRemaining = Array.isArray(item.rolls)
+                            ? Number((item.rolls.find(row => Number(row.id) === Number(allocations[0].roll_id)) || {}).remaining_length_ft)
+                            : NaN;
+                        if (Number.isFinite(rollRemaining) && rollRemaining + 1.0e-9 < plannedFt) {
+                            return `Insufficient ${item.name} stock on planned roll #${allocations[0].roll_id}: requested ${plannedFt} ${uom}, available ${rollRemaining} ${uom}.`;
+                        }
+                    }
+                }
+                const available = Number(item.current_stock || 0);
+                if (!(needed > available)) return '';
                 return `Insufficient ${item.name} stock: requested ${needed} ${uom}, available ${available} ${uom} in this branch.`;
             },
             /**
@@ -4713,6 +4795,63 @@ window.pfServiceFieldCatalog = (() => {
                 if (!rollWidth || !window.PrintFlowProductionMaterials?.calculateTarpaulinLinearLength) return null;
                 return window.PrintFlowProductionMaterials.calculateTarpaulinLinearLength(jobWidth, jobHeight, jobQuantity, rollWidth);
             },
+            tarpaulinFinishedQuantityForValidation() {
+                const contextQty = Number((this.materialCompatibilityContext || {}).customerQuantity || 0);
+                const jobQty = Number(this.currentJo?.quantity ?? this.currentJo?.qty ?? 0);
+                return contextQty > 0 ? contextQty : (jobQty > 0 ? jobQty : 0);
+            },
+            tarpaulinDimensionsMatchPersistedPlan(width, height, quantity = null) {
+                const persisted = this.persistedPosTarpaulinSelection();
+                if (!persisted) return false;
+                const qty = Number(quantity ?? this.tarpaulinFinishedQuantityForValidation());
+                if (!(width > 0) || !(height > 0) || !(qty > 0)) return false;
+                const widthOk = Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001;
+                const heightOk = Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001;
+                const qtyOk = Number(persisted.finished_quantity || 0) === Number(qty);
+                return widthOk && heightOk && qtyOk;
+            },
+            /**
+             * Multi-roll custom jobs store per-item footage on the POS plan. Use
+             * that allocation instead of fitting the full print width on one roll.
+             */
+            tarpaulinCalcFromPersistedPlan(material, width, height, quantity = null) {
+                const persisted = this.persistedPosTarpaulinSelection();
+                if (!persisted || !material) return null;
+                const itemId = Number(material.item_id || 0);
+                if (itemId <= 0) return null;
+                if (!this.tarpaulinDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+                if (persisted.version === 'roll_fit_v2' && persisted.roll_allocations_by_item) {
+                    const plannedByItem = persisted.roll_allocations_by_item[itemId]
+                        || persisted.roll_allocations_by_item[String(itemId)]
+                        || [];
+                    const plannedRollAllocations = (Array.isArray(plannedByItem) ? plannedByItem : [])
+                        .filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+                    const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                    if (!(plannedFootage > 0)) return null;
+                    const materialMeta = persisted.material_items?.[itemId]
+                        || persisted.material_items?.[String(itemId)]
+                        || {};
+                    return {
+                        calc: {
+                            required_linear_ft: plannedFootage,
+                            roll_width_ft: Number(materialMeta.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                            orientation: persisted.orientation || '',
+                        },
+                        plannedRollAllocations,
+                    };
+                }
+                if (Number(persisted.item_id) === itemId && Number(persisted.required_linear_ft) > 0) {
+                    return {
+                        calc: {
+                            required_linear_ft: Number(persisted.required_linear_ft),
+                            roll_width_ft: Number(persisted.roll_width_ft || 0),
+                            orientation: persisted.orientation || '',
+                        },
+                        plannedRollAllocations: [],
+                    };
+                }
+                return null;
+            },
             isPendingTarpaulinMaterial(material) {
                 const context = this.materialCompatibilityContext || {};
                 if (!(Number(context.serviceId) === 40 || context.serviceKind === 'tarpaulin')) return false;
@@ -4741,36 +4880,62 @@ window.pfServiceFieldCatalog = (() => {
                     material.dimension_fit_error = 'Enter positive Width and Height (ft) for this Tarpaulin assignment.';
                     return false;
                 }
-                const calc = this.tarpaulinCalculationForItem(material.item_id, width, height);
-                if (!calc || !(Number(calc.required_linear_ft) > 0)) {
-                    // Do not leave an incompatible roll selected with a stale usage value.
-                    const removedName = material.name || 'Tarpaulin roll';
-                    const index = (this.pendingMaterials || []).indexOf(material);
-                    if (index >= 0) this.pendingMaterials.splice(index, 1);
-                    this.productionErrors.material = `"${removedName}" cannot fit ${width} × ${height} ft. Choose another mapped roll or adjust Width/Height.`;
-                    this.showStaffAlert(
-                        'Roll Does Not Fit',
-                        `"${removedName}" cannot fit ${width} × ${height} ft (including rotation). Select another Tarpaulin roll.`
-                    );
-                    return false;
+                const finishedQty = this.tarpaulinFinishedQuantityForValidation();
+                const fromPlan = this.tarpaulinCalcFromPersistedPlan(material, width, height, finishedQty);
+                let calc;
+                let plannedRollAllocations = [];
+                if (fromPlan) {
+                    calc = fromPlan.calc;
+                    plannedRollAllocations = fromPlan.plannedRollAllocations;
+                } else {
+                    const persisted = this.persistedPosTarpaulinSelection();
+                    const multiRollPlan = persisted && persisted.version === 'roll_fit_v2'
+                        && persisted.roll_allocations_by_item
+                        && Object.keys(persisted.roll_allocations_by_item).length > 1;
+                    if (multiRollPlan) {
+                        material.dimension_fit_error = 'These dimensions no longer match the validated POS allocation plan. Restore the order dimensions or ask an administrator to revalidate stock.';
+                        material.qty = '';
+                        material.estimated_qty = null;
+                        material.manual_quantity_confirmed = false;
+                        return false;
+                    }
+                    calc = this.tarpaulinCalculationForItem(material.item_id, width, height, finishedQty);
+                    if (!calc || !(Number(calc.required_linear_ft) > 0)) {
+                        const removedName = material.name || 'Tarpaulin roll';
+                        const index = (this.pendingMaterials || []).indexOf(material);
+                        if (index >= 0) this.pendingMaterials.splice(index, 1);
+                        this.productionErrors.material = `"${removedName}" cannot fit ${width} × ${height} ft. Choose another mapped roll or adjust Width/Height.`;
+                        this.showStaffAlert(
+                            'Roll Does Not Fit',
+                            `"${removedName}" cannot fit ${width} × ${height} ft (including rotation). Select another Tarpaulin roll.`
+                        );
+                        return false;
+                    }
                 }
                 const qty = Number(Number(calc.required_linear_ft).toFixed(3));
-                // Inventory deduction quantity stays linear roll feet — never W×H area.
                 material.qty = qty;
                 material.estimated_qty = qty;
                 material.uom = material.uom || 'ft';
                 material.dimension_fit_error = '';
                 material.usage_method = 'tarpaulin_linear_ft';
-                material.usage_estimate_reason = 'Calculated linear roll length from assignment Width × Height and roll width.';
+                material.usage_estimate_reason = plannedRollAllocations.length
+                    ? 'Using the server-validated linear footage for this roll from the POS allocation plan.'
+                    : 'Calculated linear roll length from assignment Width × Height and roll width.';
                 material.manual_confirmation_required = true;
                 material.manual_quantity_confirmed = true;
                 material.actual_usage_overridden = false;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
-                material.metadata.calculation_version = 'linear_ft_v1';
+                material.metadata.calculation_version = fromPlan ? 'roll_fit_v2' : 'linear_ft_v1';
                 material.metadata.calculated_linear_ft = qty;
                 material.metadata.inventory_uom = 'ft';
                 material.metadata.customer_width_ft = width;
                 material.metadata.customer_height_ft = height;
+                material.metadata.tarpaulin_roll_allocations = plannedRollAllocations.map(row => ({
+                    roll_id: Number(row.roll_id),
+                    roll_code: String(row.roll_code || ''),
+                    roll_width_ft: Number(row.roll_width_ft || calc.roll_width_ft || 0),
+                    length_ft: Number(row.length_ft),
+                }));
                 material.metadata.material_usage = {
                     estimate: qty,
                     actual: qty,
@@ -4804,6 +4969,237 @@ window.pfServiceFieldCatalog = (() => {
                     details = this.currentJo.customization_details;
                 }
                 return details.pos_tarpaulin_selection || null;
+            },
+            persistedPosStickerLaminateSelection() {
+                const items = Array.isArray(this.currentJo?.items) ? this.currentJo.items : [];
+                const matching = items.find(item => Number(item?.service_id || item?.customization?.service_id || 0) === 36)
+                    || items.find(item => Number(item?.order_item_id || 0) === Number(this.currentJo?.linked_order_item_id || this.currentJo?.order_item_id || 0));
+                const raw = matching?.customization_data;
+                let details = matching?.customization && typeof matching.customization === 'object' ? matching.customization : {};
+                if (typeof raw === 'string' && raw.trim()) {
+                    try { details = { ...details, ...(JSON.parse(raw) || {}) }; } catch (error) {}
+                }
+                if (!details.pos_sticker_laminate_selection && this.currentJo?.customization_details?.pos_sticker_laminate_selection) {
+                    details = this.currentJo.customization_details;
+                }
+                const selection = details.pos_sticker_laminate_selection || null;
+                return selection && selection.version === 'sticker_laminate_v1' ? selection : null;
+            },
+            tarpaulinAllocationSummary(material) {
+                const allocations = Array.isArray(material?.metadata?.tarpaulin_roll_allocations)
+                    ? material.metadata.tarpaulin_roll_allocations : [];
+                return allocations.map(row => {
+                    const roll = Number(row.roll_id || 0);
+                    const code = String(row.roll_code || '').trim();
+                    const label = code || (roll > 0 ? `Roll #${roll}` : 'Roll');
+                    const footage = Number(row.length_ft || 0);
+                    const width = Number(row.roll_width_ft || 0);
+                    return `${label}: ${footage} ft${width > 0 ? ` @ ${width} ft width` : ''}`;
+                }).join(' · ');
+            },
+            tarpaulinSavedPlanItemIds(selection = this.persistedPosTarpaulinSelection()) {
+                if (!selection || selection.version !== 'roll_fit_v2'
+                    || !selection.roll_allocations_by_item || typeof selection.roll_allocations_by_item !== 'object') return [];
+                return Object.keys(selection.roll_allocations_by_item)
+                    .map(Number).filter(id => Number.isInteger(id) && id > 0).sort((a, b) => a - b);
+            },
+            tarpaulinSelectionMatchesSavedPlan(itemIds) {
+                if (Number((this.materialCompatibilityContext || {}).serviceId || 0) !== 40) return false;
+                const selection = this.persistedPosTarpaulinSelection();
+                const expected = this.tarpaulinSavedPlanItemIds(selection);
+                // Non-roll auxiliary materials are outside the Tarpaulin roll
+                // alternative group; compare only the verified roll item IDs.
+                const actual = [...new Set((itemIds || []).map(Number)
+                    .filter(id => Number.isInteger(id) && id >= 13 && id <= 16))].sort((a, b) => a - b);
+                return expected.length > 0 && expected.length === actual.length
+                    && expected.every((id, index) => id === actual[index]);
+            },
+            tarpaulinSavedPlanIsMultiRoll(selection = this.persistedPosTarpaulinSelection()) {
+                return !!(selection && selection.version === 'roll_fit_v2'
+                    && this.tarpaulinSavedPlanItemIds(selection).length > 1);
+            },
+            tarpaulinAssignmentOrderQuantityLabel() {
+                const qty = this.tarpaulinFinishedQuantityForValidation();
+                return qty > 0 ? String(qty) : '—';
+            },
+            tarpaulinAssignmentPrintSizeLabel(material) {
+                const width = Number(material?.customer_width_ft);
+                const height = Number(material?.customer_height_ft);
+                if (!(width > 0) || !(height > 0)) return '—';
+                return `${width} × ${height} ft`;
+            },
+            tarpaulinAssignmentRollWidthLabel(material) {
+                const metaWidth = Number(material?.metadata?.material_usage?.roll_width_ft
+                    || material?.metadata?.tarpaulin_roll_allocations?.[0]?.roll_width_ft || 0);
+                const item = material ? this.getInventoryItem(material.item_id) : null;
+                const fromItem = item && window.PrintFlowProductionMaterials?.tarpaulinRollWidthFor
+                    ? Number(window.PrintFlowProductionMaterials.tarpaulinRollWidthFor(item))
+                    : 0;
+                const width = fromItem > 0 ? fromItem : metaWidth;
+                return width > 0 ? `${width} ft` : '—';
+            },
+            tarpaulinAssignmentPlannedFootageLabel(material) {
+                const qty = Number(material?.qty ?? material?.metadata?.calculated_linear_ft);
+                if (!Number.isFinite(qty) || qty <= 0) return '—';
+                const uom = String(material?.uom || 'ft').trim() || 'ft';
+                return `${qty} ${uom}`;
+            },
+            tarpaulinAssignmentHeightIsLocked(material) {
+                return this.tarpaulinAssignmentDimensionsAreLocked(material);
+            },
+            tarpaulinAssignmentDimensionsAreLocked(material) {
+                if (!material || !this.isPendingTarpaulinMaterial(material)) return false;
+                if (!this.tarpaulinSavedPlanIsMultiRoll()) return false;
+                return this.tarpaulinDimensionsMatchPersistedPlan(
+                    Number(material.customer_width_ft),
+                    Number(material.customer_height_ft),
+                    this.tarpaulinFinishedQuantityForValidation()
+                );
+            },
+            tarpaulinAssignmentStaffGuidance() {
+                if (!this.isCurrentTarpaulinService()) return '';
+                return this.tarpaulinSavedPlanIsMultiRoll()
+                    ? 'Each card is one roll type with its planned footage. Stock deducts when the job is marked complete.'
+                    : 'Planned linear footage for this roll. Stock deducts when the job is marked complete.';
+            },
+            isCurrentStickerLaminateService() {
+                return Number((this.materialCompatibilityContext || {}).serviceId || 0) === 36;
+            },
+            isPendingStickerLaminateMaterial(material) {
+                if (!this.isCurrentStickerLaminateService() || !material) return false;
+                if (material.usage_method === 'sticker_laminate_ft') return true;
+                return String(material?.metadata?.sticker_laminate_version || '') === 'sticker_laminate_v1';
+            },
+            stickerAssignmentStaffGuidance() {
+                if (!this.isCurrentStickerLaminateService()) return '';
+                return 'Confirm customer print size and the saved laminate roll allocation. Stock deducts when the job is marked complete.';
+            },
+            stickerFinishedQuantityForValidation() {
+                const persisted = this.persistedPosStickerLaminateSelection();
+                const fromPlan = Number(persisted?.finished_quantity || 0);
+                if (fromPlan > 0) return fromPlan;
+                return this.tarpaulinFinishedQuantityForValidation();
+            },
+            stickerDimensionsMatchPersistedPlan(width, height, quantity = null) {
+                const persisted = this.persistedPosStickerLaminateSelection();
+                if (!persisted || (persisted.version || '') !== 'sticker_laminate_v1') return false;
+                const qty = Number(quantity ?? this.stickerFinishedQuantityForValidation());
+                if (!(width > 0) || !(height > 0) || !(qty > 0)) return false;
+                const widthOk = Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001;
+                const heightOk = Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001;
+                const qtyOk = Number(persisted.finished_quantity || 0) === Number(qty);
+                return widthOk && heightOk && qtyOk;
+            },
+            stickerCalcFromPersistedPlan(material, width, height, quantity = null) {
+                const persisted = this.persistedPosStickerLaminateSelection();
+                if (!persisted || !material || (persisted.version || '') !== 'sticker_laminate_v1') return null;
+                const itemId = Number(material.item_id || 0);
+                if (itemId <= 0 || Number(persisted.item_id) !== itemId) return null;
+                if (!this.stickerDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+                const plannedRollAllocations = (Array.isArray(persisted.roll_allocations) ? persisted.roll_allocations : [])
+                    .filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+                const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                if (!(plannedFootage > 0)) return null;
+                return {
+                    calc: {
+                        required_linear_ft: plannedFootage,
+                        roll_width_ft: Number(persisted.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                        orientation: persisted.orientation || '',
+                    },
+                    plannedRollAllocations,
+                };
+            },
+            handlePendingStickerLaminateDimensionInput(material, field, value) {
+                if (!material || !this.isPendingStickerLaminateMaterial(material)) return;
+                const raw = String(value ?? '').trim();
+                const parsed = raw === '' ? '' : Number(raw);
+                if (field === 'width') material.customer_width_ft = parsed;
+                if (field === 'height') material.customer_height_ft = parsed;
+                this.recalculatePendingStickerLaminateFromDimensions(material);
+            },
+            recalculatePendingStickerLaminateFromDimensions(material) {
+                if (!material || !this.isPendingStickerLaminateMaterial(material)) return false;
+                const width = Number(material.customer_width_ft);
+                const height = Number(material.customer_height_ft);
+                if (!(width > 0) || !(height > 0)) {
+                    material.qty = '';
+                    material.estimated_qty = null;
+                    material.manual_quantity_confirmed = false;
+                    material.dimension_fit_error = 'Enter positive Print width and height (ft) for this laminate assignment.';
+                    return false;
+                }
+                const finishedQty = this.stickerFinishedQuantityForValidation();
+                const fromPlan = this.stickerCalcFromPersistedPlan(material, width, height, finishedQty);
+                if (!fromPlan) {
+                    material.dimension_fit_error = 'These dimensions no longer match the validated POS laminate plan. Restore the order dimensions or revalidate stock before saving.';
+                    material.qty = '';
+                    material.estimated_qty = null;
+                    material.manual_quantity_confirmed = false;
+                    if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                    material.metadata.sticker_roll_allocations = [];
+                    material.metadata.sticker_laminate_version = null;
+                    material.metadata.calculated_linear_ft = null;
+                    return false;
+                }
+                const calc = fromPlan.calc;
+                const plannedRollAllocations = fromPlan.plannedRollAllocations;
+                const qty = Number(Number(calc.required_linear_ft).toFixed(3));
+                material.qty = qty;
+                material.estimated_qty = qty;
+                material.uom = material.uom || 'ft';
+                material.dimension_fit_error = '';
+                material.usage_method = 'sticker_laminate_ft';
+                material.usage_estimate_reason = 'Using the server-validated laminate footage and roll IDs from the POS plan.';
+                material.manual_confirmation_required = true;
+                material.manual_quantity_confirmed = true;
+                material.actual_usage_overridden = false;
+                if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
+                material.metadata.sticker_laminate_version = 'sticker_laminate_v1';
+                material.metadata.calculated_linear_ft = qty;
+                material.metadata.inventory_uom = 'ft';
+                material.metadata.customer_width_ft = width;
+                material.metadata.customer_height_ft = height;
+                material.metadata.sticker_roll_allocations = plannedRollAllocations.map(row => ({
+                    roll_id: Number(row.roll_id),
+                    roll_code: String(row.roll_code || ''),
+                    roll_width_ft: Number(row.roll_width_ft || calc.roll_width_ft || 0),
+                    length_ft: Number(row.length_ft),
+                }));
+                material.metadata.material_usage = {
+                    estimate: qty,
+                    actual: qty,
+                    method: 'sticker_laminate_ft',
+                    staff_confirmed: true,
+                    manual_actual_usage_confirmed: true,
+                    overridden: false,
+                    roll_width_ft: calc.roll_width_ft || null,
+                    orientation: calc.orientation || null,
+                    customer_width_ft: width,
+                    customer_height_ft: height,
+                    calculated_linear_ft: qty,
+                };
+                this.clearPendingMaterialConfirmationError(material);
+                return true;
+            },
+            stickerAssignmentPrintSizeLabel(material) {
+                const persisted = this.persistedPosStickerLaminateSelection();
+                const width = Number(material?.customer_width_ft || persisted?.width_ft || 0);
+                const height = Number(material?.customer_height_ft || persisted?.height_ft || 0);
+                if (!(width > 0) || !(height > 0)) return '—';
+                return `${width} × ${height} ft`;
+            },
+            stickerAssignmentRollWidthLabel(material) {
+                const persisted = this.persistedPosStickerLaminateSelection();
+                const fromPlan = Number(persisted?.roll_width_ft || material?.metadata?.sticker_roll_allocations?.[0]?.roll_width_ft || 0);
+                return fromPlan > 0 ? `${fromPlan} ft` : '—';
+            },
+            stickerAssignmentPlannedFootageLabel(material) {
+                return this.tarpaulinAssignmentPlannedFootageLabel(material);
+            },
+            stickerAssignmentOrderQuantityLabel() {
+                const persisted = this.persistedPosStickerLaminateSelection();
+                const qty = Number(persisted?.finished_quantity || 0);
+                return qty > 0 ? String(qty) : '—';
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
@@ -5318,7 +5714,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (window.PrintFlowReceiptScanner && this.currentJo.order_id) {
                     window.PrintFlowReceiptScanner.markOrderOpened(this.currentJo.order_id, 'staff-customizations');
                 }
-                this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                this.$nextTick(() => { this.maybeAutoSelectTarpaulinRoll(); this.maybeAutoSelectStickerLaminate(); });
             },
             async fetchOrderModalSummary(orderId, options = {}) {
                 const parsedOrderId = parseInt(orderId, 10);
@@ -6418,6 +6814,8 @@ window.pfServiceFieldCatalog = (() => {
                     'pos_selected_material_consumption',
                     'pos_tarpaulin_selection',
                     'postarpaulinselection',
+                    'pos_sticker_laminate_selection',
+                    'posstickerlaminateselection',
                 ].includes(token) || token.includes('design_input_mode');
             },
             staffCustomizationIsInternalLabel(label) {
@@ -6428,6 +6826,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (token.includes('staff_priority') || token.includes('priority_request')) return true;
                 if (/^staff\s+priority(\s+request)?$/i.test(raw)) return true;
                 if (/^pos\s+tarpaulin\s+selection$/i.test(raw)) return true;
+                if (/^pos\s+sticker\s+laminate\s+selection$/i.test(raw)) return true;
                 return false;
             },
             staffCustomizationIsInternalValue(value) {
@@ -6453,6 +6852,10 @@ window.pfServiceFieldCatalog = (() => {
                     && (value.item_id || value.required_linear_ft || value.roll_width_ft)) {
                     return true;
                 }
+                if (version === 'sticker_laminate_v1'
+                    && (value.item_id || value.required_linear_ft || value.roll_allocations)) {
+                    return true;
+                }
                 return false;
             },
             staffCustomizationValueText(value) {
@@ -6474,7 +6877,8 @@ window.pfServiceFieldCatalog = (() => {
                 }
                 const text = value === null || value === undefined ? '' : String(value).trim();
                 // Flattened POS Tarpaulin selection metadata must never appear as a customer answer.
-                if (/^linear_ft_v1\b/i.test(text) || /^panel_joining_v2\b/i.test(text)) {
+                if (/^linear_ft_v1\b/i.test(text) || /^panel_joining_v2\b/i.test(text)
+                    || /^sticker_laminate_v1\b/i.test(text)) {
                     return '';
                 }
                 return text;
@@ -6869,13 +7273,18 @@ window.pfServiceFieldCatalog = (() => {
                     const parsed = parseFloat(value);
                     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
                 };
-                let width = parsePositive(order.width_ft);
-                let height = parsePositive(order.height_ft);
-                if (parts) {
+                const isTarpaulin = Number(this.staffResolveItemServiceId(primaryItem || order)) === 40;
+                let width = isTarpaulin ? 0 : parsePositive(order.width_ft);
+                let height = isTarpaulin ? 0 : parsePositive(order.height_ft);
+                if (isTarpaulin) {
+                    width = parsePositive(materialService.primaryCustom?.width ?? materialService.primaryCustom?.width_ft);
+                    height = parsePositive(materialService.primaryCustom?.height ?? materialService.primaryCustom?.height_ft);
+                }
+                if (parts && !(width > 0 && height > 0)) {
                     const parsedWidth = parsePositive(parts.width);
                     const parsedHeight = parsePositive(parts.height);
-                    if (parsedWidth > 0) width = parsedWidth;
-                    if (parsedHeight > 0) height = parsedHeight;
+                    if (!(width > 0) && parsedWidth > 0) width = parsedWidth;
+                    if (!(height > 0) && parsedHeight > 0) height = parsedHeight;
                 }
                 if (width <= 0) {
                     width = parsePositive(materialService.primaryCustom?.width || materialService.primaryCustom?.width_ft);
@@ -6956,8 +7365,11 @@ window.pfServiceFieldCatalog = (() => {
                     const widthNum = parseFloat(parts.width);
                     const heightNum = parseFloat(parts.height);
                     if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && (widthNum > 0 || heightNum > 0)) {
-                        const wText = String(widthNum).replace(/\.?0+$/, '');
-                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        // Number#toString already trims fractional zeros. A
+                        // trailing-zero regex here corrupts whole dimensions
+                        // such as 10 ft into 1 ft.
+                        const wText = String(widthNum);
+                        const hText = String(heightNum);
                         return wText + ' × ' + hText + ' ft';
                     }
                 }
@@ -7022,8 +7434,8 @@ window.pfServiceFieldCatalog = (() => {
                         delete out.pos_material_dimension_unit;
                     };
                     if (hasCustomerDims) {
-                        const wText = String(widthNum).replace(/\.?0+$/, '');
-                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        const wText = String(widthNum);
+                        const hText = String(heightNum);
                         out.Width = wText + ' ' + unitShort;
                         out.Height = hText + ' ' + unitShort;
                         out.Dimensions = wText + ' × ' + hText + ' ' + unitShort;
@@ -8741,6 +9153,7 @@ window.pfServiceFieldCatalog = (() => {
                 let usageReason = '';
                 let quantityConfirmed = false;
                 let calc = null;
+                let plannedRollAllocations = [];
                 if (isTarpaulin && window.PrintFlowProductionMaterials) {
                     const persisted = this.persistedPosTarpaulinSelection();
                     if (persisted) {
@@ -8751,7 +9164,34 @@ window.pfServiceFieldCatalog = (() => {
                             customerHeightFt = Number(persisted.height_ft);
                         }
                     }
-                    if (persisted && Number(persisted.item_id) === Number(item.id)
+                    const plannedByItem = persisted && persisted.roll_allocations_by_item
+                        ? (persisted.roll_allocations_by_item[itemId] || persisted.roll_allocations_by_item[Number(itemId)] || [])
+                        : [];
+                    const jobBranch = Number(this.currentJo?.branch_id || this.currentJo?.order_branch_id || 0);
+                    const planBranch = Number(persisted?.branch_id || 0);
+                    // Custom Orders detail payloads often omit branch_id. A saved
+                    // plan is still the actual quantity; the server rejects a
+                    // plan whose branch does not match the job at save time.
+                    const planBranchMatchesJob = planBranch > 0 && (jobBranch <= 0 || jobBranch === planBranch);
+                    if (persisted && persisted.version === 'roll_fit_v2'
+                        && planBranchMatchesJob
+                        && plannedByItem.length > 0
+                        && Math.abs(Number(persisted.width_ft || 0) - Number(customerWidthFt || 0)) < 0.000001
+                        && Math.abs(Number(persisted.height_ft || 0) - Number(customerHeightFt || 0)) < 0.000001) {
+                        plannedRollAllocations = plannedByItem.filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+                        const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                        if (plannedFootage > 0) {
+                            calc = {
+                                required_linear_ft: plannedFootage,
+                                roll_width_ft: Number(persisted.material_items?.[itemId]?.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                                orientation: persisted.orientation || '',
+                            };
+                        }
+                    } else if (persisted && persisted.version === 'roll_fit_v2') {
+                        // A saved multi-roll allocation is authoritative. Never
+                        // replace a missing/mismatched plan with one guessed roll.
+                        calc = null;
+                    } else if (persisted && Number(persisted.item_id) === Number(item.id)
                         && Number.isFinite(Number(persisted.required_linear_ft))
                         && Number(persisted.required_linear_ft) > 0
                         && (!(customerWidthFt > 0) || Math.abs(Number(persisted.width_ft || 0) - Number(customerWidthFt)) < 0.000001)
@@ -8771,11 +9211,52 @@ window.pfServiceFieldCatalog = (() => {
                     if (calc && Number.isFinite(Number(calc.required_linear_ft)) && Number(calc.required_linear_ft) > 0) {
                         qty = Number(Number(calc.required_linear_ft).toFixed(3));
                         estimatedQty = qty;
-                        usageReason = 'Calculated from customer Width × Height against the selected Tarpaulin roll width.';
-                        // Prefill from known customer dimensions is an explicit calculated usage.
-                        quantityConfirmed = options.autoSelected === true || (customerWidthFt > 0 && customerHeightFt > 0);
+                        usageReason = plannedRollAllocations.length
+                            ? 'Using the server-validated linear footage for this roll from the POS allocation plan.'
+                            : 'Calculated from customer Width × Height against the selected Tarpaulin roll width.';
+                        // A calculated or saved-plan footage is the actual quantity.
+                        // Staff do not have to retype auto-filled dimensions before save.
+                        quantityConfirmed = true;
                     }
                 }
+                const isStickerLaminate = Number(context.serviceId) === 36;
+                let stickerRollAllocations = [];
+                let stickerCustomerWidthFt = '';
+                let stickerCustomerHeightFt = '';
+                let stickerRollWidthFt = null;
+                if (isStickerLaminate) {
+                    const persistedSticker = this.persistedPosStickerLaminateSelection();
+                    const stickerJobBranch = Number(this.currentJo?.branch_id || this.currentJo?.order_branch_id || 0);
+                    const stickerPlanBranch = Number(persistedSticker?.branch_id || 0);
+                    const stickerPlanMatchesJob = stickerPlanBranch > 0 && (stickerJobBranch <= 0 || stickerJobBranch === stickerPlanBranch);
+                    if (persistedSticker) {
+                        if (Number(persistedSticker.width_ft) > 0) stickerCustomerWidthFt = Number(persistedSticker.width_ft);
+                        if (Number(persistedSticker.height_ft) > 0) stickerCustomerHeightFt = Number(persistedSticker.height_ft);
+                        stickerRollWidthFt = Number(persistedSticker.roll_width_ft) > 0 ? Number(persistedSticker.roll_width_ft) : null;
+                    }
+                    if (!(stickerCustomerWidthFt > 0) && orderDimensions.width > 0) stickerCustomerWidthFt = orderDimensions.width;
+                    if (!(stickerCustomerHeightFt > 0) && orderDimensions.height > 0) stickerCustomerHeightFt = orderDimensions.height;
+                    if (persistedSticker && Number(persistedSticker.item_id) === Number(item.id) && stickerPlanMatchesJob) {
+                        stickerRollAllocations = (Array.isArray(persistedSticker.roll_allocations) ? persistedSticker.roll_allocations : [])
+                            .filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0)
+                            .map(row => ({
+                                roll_id: Number(row.roll_id),
+                                roll_code: String(row.roll_code || ''),
+                                roll_width_ft: Number(row.roll_width_ft || stickerRollWidthFt || 0),
+                                length_ft: Number(row.length_ft),
+                            }));
+                        const plannedFootage = stickerRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                        if (plannedFootage > 0) {
+                            qty = Number(plannedFootage.toFixed(3));
+                            estimatedQty = qty;
+                            usageReason = 'POS planned laminate footage (confirmed).';
+                            quantityConfirmed = true;
+                        }
+                    }
+                }
+                const stickerQtyReady = isStickerLaminate && estimatedQty !== null;
+                const tarpQtyReady = isTarpaulin && estimatedQty !== null;
+                const stickerDimsReady = isStickerLaminate && (stickerCustomerWidthFt > 0) && (stickerCustomerHeightFt > 0);
                 this.pendingMaterials.push({
                     // Canonical inventory identity — same for auto-select and manual click.
                     item_id: Number(item.id),
@@ -8785,33 +9266,41 @@ window.pfServiceFieldCatalog = (() => {
                     uom: entryUom,
                     roll_id: '',
                     notes: '',
-                    customer_width_ft: isTarpaulin ? customerWidthFt : '',
-                    customer_height_ft: isTarpaulin ? customerHeightFt : '',
+                    customer_width_ft: isTarpaulin ? customerWidthFt : (stickerDimsReady || isStickerLaminate ? stickerCustomerWidthFt : ''),
+                    customer_height_ft: isTarpaulin ? customerHeightFt : (stickerDimsReady || isStickerLaminate ? stickerCustomerHeightFt : ''),
                     dimension_fit_error: '',
                     metadata: {
-                        calculation_version: isTarpaulin && estimatedQty !== null ? 'linear_ft_v1' : null,
-                        calculated_linear_ft: isTarpaulin && estimatedQty !== null ? estimatedQty : null,
-                        inventory_uom: isTarpaulin ? entryUom : null,
-                        customer_width_ft: isTarpaulin ? customerWidthFt : null,
-                        customer_height_ft: isTarpaulin ? customerHeightFt : null,
+                        calculation_version: tarpQtyReady ? 'linear_ft_v1' : null,
+                        calculated_linear_ft: (tarpQtyReady || stickerQtyReady) ? estimatedQty : null,
+                        inventory_uom: (tarpQtyReady || stickerQtyReady) ? entryUom : null,
+                        customer_width_ft: tarpQtyReady ? customerWidthFt : (stickerQtyReady ? stickerCustomerWidthFt : null),
+                        customer_height_ft: tarpQtyReady ? customerHeightFt : (stickerQtyReady ? stickerCustomerHeightFt : null),
+                        tarpaulin_roll_allocations: plannedRollAllocations.map(row => ({
+                            roll_id: Number(row.roll_id),
+                            roll_code: String(row.roll_code || ''),
+                            roll_width_ft: Number(row.roll_width_ft || calc?.roll_width_ft || 0),
+                            length_ft: Number(row.length_ft),
+                        })),
+                        sticker_laminate_version: stickerRollAllocations.length ? 'sticker_laminate_v1' : null,
+                        sticker_roll_allocations: stickerRollAllocations,
                         material_usage: {
                             estimate: estimatedQty,
                             actual: qty === '' ? null : qty,
-                            method: isTarpaulin && estimatedQty !== null ? 'tarpaulin_linear_ft' : 'manual',
+                            method: tarpQtyReady ? 'tarpaulin_linear_ft' : (stickerQtyReady ? 'sticker_laminate_ft' : 'manual'),
                             staff_confirmed: quantityConfirmed,
                             manual_actual_usage_confirmed: quantityConfirmed,
                             overridden: false,
-                            roll_width_ft: calc && calc.roll_width_ft ? calc.roll_width_ft : null,
+                            roll_width_ft: tarpQtyReady && calc ? calc.roll_width_ft : (stickerQtyReady ? stickerRollWidthFt : null),
                             orientation: calc && calc.orientation ? calc.orientation : null,
                             run_length_per_piece_ft: calc && calc.run_length_per_piece_ft ? calc.run_length_per_piece_ft : null,
-                            customer_width_ft: isTarpaulin ? customerWidthFt : null,
-                            customer_height_ft: isTarpaulin ? customerHeightFt : null,
-                            calculated_linear_ft: isTarpaulin && estimatedQty !== null ? estimatedQty : null,
+                            customer_width_ft: tarpQtyReady ? customerWidthFt : (stickerQtyReady ? stickerCustomerWidthFt : null),
+                            customer_height_ft: tarpQtyReady ? customerHeightFt : (stickerQtyReady ? stickerCustomerHeightFt : null),
+                            calculated_linear_ft: (tarpQtyReady || stickerQtyReady) ? estimatedQty : null,
                         }
                     },
                     estimated_qty: estimatedQty,
                     required_minimum_qty: null,
-                    usage_method: isTarpaulin && estimatedQty !== null ? 'tarpaulin_linear_ft' : 'manual',
+                    usage_method: tarpQtyReady ? 'tarpaulin_linear_ft' : (stickerQtyReady ? 'sticker_laminate_ft' : 'manual'),
                     usage_estimate_reason: usageReason,
                     manual_confirmation_required: true,
                     manual_quantity_confirmed: quantityConfirmed,
@@ -8835,6 +9324,17 @@ window.pfServiceFieldCatalog = (() => {
                 };
                 let candidate = null;
                 const persisted = this.persistedPosTarpaulinSelection();
+                const plannedItemIds = this.tarpaulinSavedPlanItemIds(persisted);
+                if (plannedItemIds.length > 0) {
+                    const plannedItems = plannedItemIds.map(itemId => (this.allInventoryItems || [])
+                        .find(item => Number(item.id) === itemId) || null);
+                    if (plannedItems.some(item => !isEligibleTarpaulinRoll(item))) {
+                        this.productionErrors.material = 'A material in the saved Tarpaulin allocation is not available for this order. Refresh the order before continuing.';
+                        return;
+                    }
+                    plannedItems.forEach(item => this.queueMaterialFromPicker(item, { autoSelected: true }));
+                    return;
+                }
                 if (persisted && Number(persisted.item_id) > 0) {
                     candidate = (this.allInventoryItems || []).find((item) => Number(item.id) === Number(persisted.item_id)) || null;
                     if (!isEligibleTarpaulinRoll(candidate)) candidate = null;
@@ -8847,6 +9347,23 @@ window.pfServiceFieldCatalog = (() => {
                     );
                 }
                 if (!isEligibleTarpaulinRoll(candidate)) return;
+                this.queueMaterialFromPicker(candidate, { autoSelected: true });
+            },
+            maybeAutoSelectStickerLaminate() {
+                if (!this.currentJo) return;
+                const context = this.materialCompatibilityContext || {};
+                if (Number(context.serviceId) !== 36) return;
+                if ((this.pendingMaterials || []).length > 0) return;
+                if ((Array.isArray(this.currentJo.materials) ? this.currentJo.materials : []).length > 0) return;
+                const persisted = this.persistedPosStickerLaminateSelection();
+                const itemId = Number(persisted?.item_id || 0);
+                if (!persisted || itemId <= 0) return;
+                const candidate = (this.allInventoryItems || []).find(item => Number(item.id) === itemId) || null;
+                const state = candidate ? this.materialClassification(candidate) : null;
+                if (!candidate || !state || !state.selectable || !state.directSelectable) {
+                    this.productionErrors.material = 'The laminate from the saved sticker allocation is not available for this order. Refresh the order before continuing.';
+                    return;
+                }
                 this.queueMaterialFromPicker(candidate, { autoSelected: true });
             },
             /**
@@ -9073,7 +9590,7 @@ window.pfServiceFieldCatalog = (() => {
                     await Promise.allSettled([inventoryPromise, machinesPromise]);
                     this.markPosSetPriceTiming('inventory_ready');
                     if (this.showDetailsModal) {
-                        this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                        this.$nextTick(() => { this.maybeAutoSelectTarpaulinRoll(); this.maybeAutoSelectStickerLaminate(); });
                     }
                 } else {
                     await this.loadOrders();
@@ -10777,6 +11294,18 @@ window.pfServiceFieldCatalog = (() => {
                         || tarpDimIssue.dimension_fit_error
                         || `Enter Tarpaulin Width and Height for ${tarpDimIssue.name || 'the selected roll'} before saving.`;
                 }
+                const stickerDimIssue = [...this.pendingMaterials, ...extraMaterials].find((material) => {
+                    if (!material || !this.isPendingStickerLaminateMaterial(material)) return false;
+                    if (material.dimension_fit_error) return true;
+                    const width = Number(material.customer_width_ft);
+                    const height = Number(material.customer_height_ft);
+                    return !(width > 0 && height > 0);
+                });
+                if (stickerDimIssue) {
+                    errors.material = errors.material
+                        || stickerDimIssue.dimension_fit_error
+                        || `Enter laminate print width and height for ${stickerDimIssue.name || 'the selected finish'} before saving.`;
+                }
                 const pendingStockIssue = [...this.pendingMaterials, ...extraMaterials]
                     .map(material => this.pendingMaterialStockError && this.pendingMaterialStockError(material))
                     .find(Boolean);
@@ -10787,7 +11316,14 @@ window.pfServiceFieldCatalog = (() => {
                 const selectedAssignmentIds = [...savedMaterials, ...this.pendingMaterials, ...extraMaterials]
                     .map(material => Number(material && (material.item_id || material.id)))
                     .filter(itemId => Number.isInteger(itemId) && itemId > 0);
-                if (window.PrintFlowProductionMaterials && typeof window.PrintFlowProductionMaterials.validateAssignmentGroups === 'function') {
+                if (Number(assignmentContext.serviceId || 0) === 40) {
+                    const expectedTarpaulinIds = this.tarpaulinSavedPlanItemIds();
+                    if (expectedTarpaulinIds.length > 0 && !this.tarpaulinSelectionMatchesSavedPlan(selectedAssignmentIds)) {
+                        errors.material = errors.material || 'Select every Tarpaulin roll in the validated allocation plan before saving the price.';
+                    }
+                }
+                if (window.PrintFlowProductionMaterials && typeof window.PrintFlowProductionMaterials.validateAssignmentGroups === 'function'
+                    && !this.tarpaulinSelectionMatchesSavedPlan(selectedAssignmentIds)) {
                     const selectionError = window.PrintFlowProductionMaterials.validateAssignmentGroups(
                         Number(assignmentContext.serviceId || 0),
                         selectedAssignmentIds,
@@ -11307,7 +11843,7 @@ window.pfServiceFieldCatalog = (() => {
                     this.materialRules = Array.isArray(res.material_rules) ? res.material_rules : [];
                     this.activeProductionServices = Array.isArray(res.active_services) ? res.active_services : [];
                     this.laminationItemsList = this.allInventoryItems.filter(i => i.name.toUpperCase().includes('LAMINATE'));
-                    this.$nextTick(() => this.maybeAutoSelectTarpaulinRoll());
+                    this.$nextTick(() => { this.maybeAutoSelectTarpaulinRoll(); this.maybeAutoSelectStickerLaminate(); });
                 }
             },
 

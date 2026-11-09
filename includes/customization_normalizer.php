@@ -18,11 +18,12 @@ function printflow_customization_value_text($value): string {
         // "linear_ft_v1, 2, 2, …" must never surface as a customer specification.
         $version = strtolower(trim((string)($value['version'] ?? '')));
         if (
-            in_array($version, ['linear_ft_v1', 'panel_joining_v2'], true)
+            in_array($version, ['linear_ft_v1', 'panel_joining_v2', 'roll_fit_v1', 'roll_fit_v2', 'sticker_laminate_v1'], true)
             && (
                 isset($value['item_id'])
                 || isset($value['required_linear_ft'])
                 || isset($value['roll_width_ft'])
+                || isset($value['roll_allocations'])
             )
         ) {
             return '';
@@ -33,7 +34,7 @@ function printflow_customization_value_text($value): string {
         }
         $joined = implode(', ', $parts);
         if (
-            preg_match('/^(?:linear_ft_v1|panel_joining_v2)\b/i', $joined)
+            preg_match('/^(?:linear_ft_v1|panel_joining_v2|roll_fit_v1|roll_fit_v2|sticker_laminate_v1)\b/i', $joined)
             && preg_match('/\d+\s*,\s*\d+/', $joined)
         ) {
             return '';
@@ -41,7 +42,7 @@ function printflow_customization_value_text($value): string {
         return $joined;
     }
     $text = is_scalar($value) ? trim((string)$value) : '';
-    if (preg_match('/^(?:linear_ft_v1|panel_joining_v2)\b/i', $text)) {
+    if (preg_match('/^(?:linear_ft_v1|panel_joining_v2|roll_fit_v1|roll_fit_v2|sticker_laminate_v1)\b/i', $text)) {
         return '';
     }
     return $text;
@@ -101,6 +102,7 @@ function printflow_customization_field_meta(string $key): array {
         'design_input_mode', 'dimensions_design_input_mode', 'calculated_unit_price', 'calculated_estimated_price',
         'price_unconfigured', 'material_name',
         'pos_tarpaulin_selection', 'postarpaulinselection',
+        'pos_sticker_laminate_selection', 'posstickerlaminateselection',
         'pos_selected_material_ids', 'posselectedmaterialids',
         'pos_material_dimension_unit', 'posmaterialdimensionunit',
         'pos_material_consumption', 'posmaterialconsumption',
