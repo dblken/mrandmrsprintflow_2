@@ -13,12 +13,14 @@ printflow_require_staff_module('reports');
 require_once __DIR__ . '/../includes/staff_pending_check.php';
 require_once __DIR__ . '/../includes/staff_status_filters.php';
 require_once __DIR__ . '/../includes/staff_report_top_services.php';
+require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
 $staffAccessMeta = printflow_get_staff_access_meta();
 $staffRole = (string)($staffAccessMeta['key'] ?? 'online');
 $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffRole);
 $staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
+$staffOrderScopeSql .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
 $range = $_GET['range'] ?? 'week';
 $report_date = $_GET['date'] ?? date('Y-m-d');
 

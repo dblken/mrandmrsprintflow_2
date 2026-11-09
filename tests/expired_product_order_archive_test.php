@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__);
 $helpers = file_get_contents($root . '/includes/expired_product_order_archive.php');
+$scope = file_get_contents($root . '/includes/ready_made_product_order_scope.php');
 $orders = file_get_contents($root . '/staff/orders.php');
+$adminOrders = file_get_contents($root . '/admin/orders_management.php');
 $orderDataApi = file_get_contents($root . '/staff/get_order_data.php');
 $orderDetails = file_get_contents($root . '/staff/order_details.php');
 $cron = file_get_contents($root . '/cron/cleanup_expired_product_orders.php');
@@ -14,7 +16,7 @@ $api = file_get_contents($root . '/admin/api/clear_archived_expired_product_orde
 $products = file_get_contents($root . '/admin/products_management.php');
 $archivedJson = file_get_contents($root . '/includes/staff_orders_archived_json.php');
 
-if ($helpers === false || $orders === false || $orderDataApi === false || $orderDetails === false || $cron === false || $retentionDoc === false || $staffApi === false || $api === false || $products === false || $archivedJson === false) {
+if ($helpers === false || $scope === false || $orders === false || $adminOrders === false || $orderDataApi === false || $orderDetails === false || $cron === false || $retentionDoc === false || $staffApi === false || $api === false || $products === false || $archivedJson === false) {
     throw new RuntimeException('Unable to read archive flow sources.');
 }
 
@@ -31,7 +33,11 @@ $assert(strpos($helpers, 'oAlias}.order_date < DATE_SUB(NOW(), INTERVAL 24 HOUR)
 $assert(strpos($helpers, 'provider_payment_status_history') !== false, 'expired retention prefers the actual expired transition time');
 $assert(strpos($helpers, "= 'awaiting_payment'") !== false, 'provider Awaiting Payment orders are eligible by the displayed provider state');
 $assert(strpos($helpers, "= 'expired'") !== false, 'provider Expired orders are eligible by the displayed provider state');
-$assert(strpos($helpers, "IN ('to pay', 'awaiting payment')") !== false, 'legacy To Pay status maps to displayed Awaiting Payment');
+$assert(strpos($helpers, "IN ('to pay', 'awaiting payment', 'pending')") !== false, 'legacy Pending/To Pay/Awaiting Payment share the unpaid awaiting bucket');
+$assert(strpos($helpers, 'ready_made_product_order_scope.php') !== false, 'archive helpers load ready-made scope predicates');
+$assert(strpos($scope, 'function printflow_ready_made_product_order_scope_sql') !== false, 'ready-made scope file is loadable');
+$assert(strpos($helpers, 'printflow_ready_made_product_cancelled_operational_hidden_sql') !== false, 'cancelled ready-made orders are hidden operationally');
+$assert(strpos($helpers, 'printflow_expired_product_order_physical_cleanup_enabled') !== false, 'physical cleanup is gated off unless explicitly enabled');
 $assert(strpos($helpers, 'payment_submissions ps_protect') === false, 'payment submissions do not block stale unpaid order deletion');
 $assert(strpos($helpers, 'information_schema.TABLES') !== false && strpos($helpers, "!== 'innodb'") !== false, 'every deleted table must be InnoDB for rollback safety');
 $assert(strpos($helpers, "UPPER(TRIM(COALESCE(it.direction, ''))) = 'OUT'") === false, 'inventory stock-out rows do not block stale unpaid order deletion');
@@ -46,9 +52,10 @@ $displayFunction = $displayStart !== false && $displayEnd !== false
     : '';
 $assert($displayFunction !== '', 'overdue list visibility has a dedicated predicate');
 $assert(strpos($displayFunction, 'printflow_expired_product_order_retention_eligible_sql') === false, 'display filtering is not coupled to physical-deletion guards');
-$assert(strpos($displayFunction, 'printflow_expired_product_order_awaiting_age_sql') !== false
-    && strpos($displayFunction, 'printflow_expired_product_order_expired_age_sql') !== false,
-    'display predicate still applies the 24-hour order and expiration timestamps');
+$assert(strpos($helpers, 'printflow_ready_made_product_unpaid_overdue_operational_hidden_sql') !== false
+    && strpos($helpers, 'printflow_expired_product_order_awaiting_age_sql') !== false
+    && strpos($helpers, 'printflow_expired_product_order_expired_age_sql') !== false,
+    'unpaid overdue helper still applies the 24-hour order and expiration timestamps');
 $assert(strpos($displayFunction, 'payment_submissions') === false
     && strpos($displayFunction, 'job_orders') === false
     && strpos($displayFunction, 'inventory_transactions') === false,
@@ -60,8 +67,9 @@ $assert(strpos($cron, 'printflow_expired_product_order_cleanup(null, 500)') !== 
 $assert(strpos($cron, "PHP_SAPI !== 'cli'") !== false && strpos($cron, 'GET_LOCK') !== false, 'cron is CLI-only and serializes overlapping scheduled runs');
 $assert(strpos($orders, 'printflow_expired_product_order_cleanup($staffBranchId, 100)') !== false, 'staff page runs branch fallback before list and counts');
 $assert(substr_count($orders, 'printflow_expired_product_order_exclude_archived_sql') >= 2, 'main list and KPI queries exclude due rows if cleanup is delayed');
-$assert(strpos($orderDataApi, 'printflow_expired_product_order_overdue_for_display_sql') !== false, 'legacy order list/details API hides overdue online product orders');
-$assert(strpos($orderDetails, 'printflow_expired_product_order_overdue_for_display_sql') !== false, 'direct order details route hides overdue online product orders');
+$assert(strpos($orderDataApi, 'printflow_expired_product_order_exclude_archived_sql') !== false, 'legacy order list/details API applies shared operational exclusion');
+$assert(strpos($orderDetails, 'printflow_expired_product_order_exclude_archived_sql') !== false, 'direct order details route applies shared operational exclusion');
+$assert(substr_count($adminOrders, 'printflow_expired_product_order_exclude_archived_sql') >= 3, 'admin product orders list, count, and KPIs apply operational exclusion');
 $assert(strpos($retentionDoc, 'Asia/Manila') !== false && strpos($retentionDoc, '* * * * *') !== false, 'scheduler/timezone operations are documented');
 $assert(is_string($retentionDocNormalized) && stripos($retentionDocNormalized, 'payment submissions, linked job records, and inventory movement rows do not block') !== false, 'documentation explains the non-payment-child deletion policy');
 $assert(strpos($orders, 'fp_display_status') !== false, 'filter panel includes Paid/Expired/Completed');

@@ -12,6 +12,7 @@ require_once __DIR__ . '/../includes/branch_context.php';
 require_once __DIR__ . '/../includes/branch_ui.php';
 require_once __DIR__ . '/../includes/order_archive.php';
 require_once __DIR__ . '/../includes/admin_transaction_visibility.php';
+require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 
 require_role(['Admin', 'Manager']);
 // Ensure $base_path is defined
@@ -77,7 +78,8 @@ $sql = "SELECT o.*, CONCAT(c.first_name, ' ', c.last_name) as customer_name, c.e
         WHERE 1=1
           AND o.order_type = 'product'
           AND " . printflow_order_archive_scope_sql('o') . "
-          AND " . printflow_admin_order_transaction_visible_sql('o');
+          AND " . printflow_admin_order_transaction_visible_sql('o') . "
+          AND " . printflow_expired_product_order_exclude_archived_sql('o');
 $params = [];
 $types = '';
 $order_code_search_sql = "CONCAT(
@@ -150,7 +152,8 @@ $count_sql = "SELECT COUNT(*) as total FROM (
     WHERE 1=1
       AND o.order_type = 'product'
       AND " . printflow_order_archive_scope_sql('o') . "
-      AND " . printflow_admin_order_transaction_visible_sql('o');
+      AND " . printflow_admin_order_transaction_visible_sql('o') . "
+      AND " . printflow_expired_product_order_exclude_archived_sql('o');
 
 if ($branchId !== 'all') {
     $count_sql .= " AND o.branch_id = " . (int)$branchId;
@@ -211,7 +214,7 @@ $kpiRow = db_query(
             SUM(CASE WHEN o.status IN ('Ready for Pickup', 'Processing', 'In Production', 'Printing', 'Released', 'Delivered') THEN 1 ELSE 0 END) AS ready_count,
             SUM(CASE WHEN o.status = 'Completed' THEN 1 ELSE 0 END) AS completed_count
      FROM orders o
-     WHERE o.order_type = 'product' AND {$archiveScope} AND " . printflow_admin_order_transaction_visible_sql('o') . " {$bSqlFrag}",
+     WHERE o.order_type = 'product' AND {$archiveScope} AND " . printflow_admin_order_transaction_visible_sql('o') . " AND " . printflow_expired_product_order_exclude_archived_sql('o') . " {$bSqlFrag}",
     $bT ?: null,
     $bP ?: null
 )[0] ?? [];
