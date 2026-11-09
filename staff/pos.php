@@ -668,6 +668,26 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             cursor: default;
         }
 
+        #service-modal-overlay .pf-service-quantity-field.shopee-opt-group {
+            display: block;
+            width: 175px;
+            max-width: 100%;
+        }
+
+        #service-modal-overlay .pf-service-quantity-stack {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            width: 175px;
+            max-width: 100%;
+        }
+
+        #service-modal-overlay .pf-service-quantity-stack .pf-service-quantity-limit-hint {
+            width: 100%;
+            line-height: 1.35;
+        }
+
         /* 
          * STABLE POS LAYOUT
          * We use absolute positioning inside a relative container to prevent ALL jumping/height shifts.
@@ -3644,6 +3664,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
         let posServiceStockRequestTimer = null;
         let posServiceStockValidationController = null;
         let posServiceStockBlocking = false;
+        let posServiceStockAddAttempted = false;
         let posEstimatedPriceController = null;
         const STAFF_BASE_PATH = <?php echo json_encode(BASE_PATH); ?>;
         const POS_DEFAULT_CATALOG_IMG = <?php echo json_encode($pos_default_catalog_img); ?>;
@@ -5149,12 +5170,13 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
             posDisposeServiceStockValidationListeners();
             destroyPosEstimatedPrice();
-            posServiceStockBlocking = true;
+            posServiceStockAddAttempted = false;
+            posServiceStockBlocking = false;
             const stockFeedback = document.getElementById('pos-service-stock-feedback');
             const stockIndicator = document.getElementById('pos-service-stock-indicator');
             const stockWarning = document.getElementById('pos-service-stock-warning');
-            if (stockFeedback) stockFeedback.style.display = 'block';
-            if (stockIndicator) stockIndicator.textContent = 'Checking current material stock…';
+            if (stockFeedback) stockFeedback.style.display = 'none';
+            if (stockIndicator) stockIndicator.textContent = '';
             if (stockWarning) stockWarning.textContent = '';
             setServiceAddButtonBusy(false);
             title.textContent = serviceName + ' — Order Details';
@@ -5260,6 +5282,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
 
         function closeServiceModal() {
             isAddingToOrder = false;
+            posServiceStockAddAttempted = false;
             setServiceAddButtonBusy(false);
             posDisposeServiceStockValidationListeners();
             destroyPosEstimatedPrice();
@@ -6023,6 +6046,46 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return customization;
         }
 
+        function posStickerLaminateFormReadyForStock(serviceId, serviceCustomization) {
+            if (Number(serviceId) !== 36) return false;
+            const customization = serviceCustomization && typeof serviceCustomization === 'object'
+                ? serviceCustomization
+                : {};
+            const stickerLaminateReady = Object.values(customization).some(value => {
+                const selected = String(value || '').trim();
+                return /^(?:Glossy Sticker (?:Printed|Cut Out)|Matte Sticker (?:Printed|Cut Out))\b/i.test(selected)
+                    && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")\s*[x×*]\s*\d+(?:\.\d+)?/i.test(selected);
+            });
+            const stickerSpec = (keys) => {
+                for (const key of keys) {
+                    const value = String(customization[key] || '').trim();
+                    if (value) return value;
+                }
+                return '';
+            };
+            const stickerCustomFinish = stickerSpec(['sticker_custom_finish', 'finish', 'Finish']).toLowerCase();
+            const stickerCustomProcess = stickerSpec(['sticker_custom_process', 'sticker_type', 'Sticker Type']).toLowerCase();
+            const stickerCustomWidth = Number(customization.width || customization.dimensions_width || customization.Width || 0);
+            const stickerCustomHeight = Number(customization.height || customization.dimensions_height || customization.Height || 0);
+            const stickerCustomUnit = stickerSpec(['pos_material_dimension_unit', 'dimensions_unit', 'unit']).toLowerCase();
+            const stickerCustomSizeChosen = Object.values(customization).some(value => /^(?:others|custom size|customsize|customize size)$/i.test(String(value || '').trim()));
+            const stickerDimensionValue = stickerSpec(['dimensions', 'Dimensions']);
+            const stickerPresetDimensionChosen = stickerDimensionValue !== ''
+                && !/^(?:others|custom size|customsize|customize size)$/i.test(stickerDimensionValue)
+                && /\d+(?:\.\d+)?\s*(?:ft|feet|foot|in|inch|inches|cm|mm|m|\")?\s*[x×*]\s*\d+(?:\.\d+)?/i.test(stickerDimensionValue);
+            const stickerSeparatedPresetReady = stickerPresetDimensionChosen
+                && !stickerCustomSizeChosen
+                && ['matte', 'gloss', 'glossy'].includes(stickerCustomFinish)
+                && ['printed', 'cut out', 'cutout'].includes(stickerCustomProcess);
+            const stickerCustomReady = stickerCustomSizeChosen
+                && stickerCustomWidth > 0
+                && stickerCustomHeight > 0
+                && ['ft', 'feet', 'foot', 'in', 'inch', 'inches', 'cm', 'mm'].includes(stickerCustomUnit)
+                && ['matte', 'gloss', 'glossy'].includes(stickerCustomFinish)
+                && ['printed', 'cut out', 'cutout'].includes(stickerCustomProcess);
+            return stickerLaminateReady || stickerSeparatedPresetReady || stickerCustomReady;
+        }
+
         async function posValidateServiceStockNow(serviceId, quantityRaw, customization = null) {
             const requestVersion = ++posServiceStockRequestVersion;
             const input = posServiceQuantityInput();
@@ -6122,9 +6185,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const sintraSelectedItemId = sintraSelectedIds.length === 1 ? sintraSelectedIds[0] : 0;
             const sintraThicknessSelected = Number(serviceId) === 71 && sintraSelectedItemId > 0;
             if (Number(serviceId) === 36 && stickerCustomSizeChosen && !stickerCustomReady) {
-                const message = 'Enter width, height, laminate finish, and sticker type before checking laminate stock.';
-                posSetServiceStockState(true, '', message);
-                return { valid: false, message };
+                if (!posServiceStockAddAttempted) {
+                    posSetServiceStockState(false, '', '');
+                    return { valid: true, deferred: true };
+                }
+                posSetServiceStockState(false, '', '');
+                return { valid: false, deferred: true };
             }
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63
@@ -6389,14 +6455,28 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const scheduleValidation = () => {
                 if (posServiceStockRequestTimer) clearTimeout(posServiceStockRequestTimer);
                 posServiceStockRequestVersion += 1;
-                posServiceStockBlocking = true;
-                setServiceAddButtonBusy(isAddingToOrder);
+                const stickerLiveDeferred = Number(serviceId) === 36
+                    && !posServiceStockAddAttempted
+                    && !posStickerLaminateFormReadyForStock(Number(serviceId), posCollectServiceStockCustomization());
+                if (!stickerLiveDeferred) {
+                    posServiceStockBlocking = true;
+                    setServiceAddButtonBusy(isAddingToOrder);
+                } else {
+                    posServiceStockBlocking = false;
+                    setServiceAddButtonBusy(isAddingToOrder);
+                }
                 const feedback = document.getElementById('pos-service-stock-feedback');
                 const warning = document.getElementById('pos-service-stock-warning');
                 const indicator = document.getElementById('pos-service-stock-indicator');
-                if (feedback) feedback.style.display = 'block';
-                if (indicator) indicator.textContent = 'Checking current material stock…';
-                if (warning) warning.textContent = '';
+                if (stickerLiveDeferred) {
+                    if (feedback) feedback.style.display = 'none';
+                    if (indicator) indicator.textContent = '';
+                    if (warning) warning.textContent = '';
+                } else {
+                    if (feedback) feedback.style.display = 'block';
+                    if (indicator) indicator.textContent = 'Checking current material stock…';
+                    if (warning) warning.textContent = '';
+                }
                 const quantity = posServiceQuantityInput();
                 posServiceStockRequestTimer = setTimeout(() => {
                     posValidateServiceStockNow(serviceId, quantity ? quantity.value : '');
@@ -6879,6 +6959,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 focusFirstInvalidField(validationResult.errors);
                 return;
             }
+            posServiceStockAddAttempted = true;
             const branchHidden = body.querySelector('input[type="hidden"][name="branch_id"]');
             const branchSel = body.querySelector('select[name="branch_id"]');
             const branchVal = (branchHidden && branchHidden.value) ? branchHidden.value : (branchSel ? branchSel.value : '');

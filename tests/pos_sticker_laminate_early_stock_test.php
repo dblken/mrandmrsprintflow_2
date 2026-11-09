@@ -662,6 +662,9 @@ $assert(printflow_pos_sticker_laminate_selection([
 $posSource = (string)file_get_contents(dirname(__DIR__) . '/staff/pos.php');
 $assert(str_contains($posSource, 'stickerSeparatedPresetReady'),
     'POS stock pre-check runs for configured dimension presets with separate finish/type.');
+$assert(str_contains($posSource, 'posStickerLaminateFormReadyForStock')
+    && str_contains($posSource, 'posServiceStockAddAttempted'),
+    'Sticker stock pre-check defers live laminate warnings until Add to Order when specs are incomplete.');
 
 echo "POS sticker laminate early-stock checks passed.\n";
 

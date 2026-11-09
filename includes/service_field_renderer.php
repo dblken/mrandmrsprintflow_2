@@ -786,13 +786,15 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             }
             $qty_name = htmlspecialchars($field_key, ENT_QUOTES, 'UTF-8');
             $qty_id = 'pf-qty-' . preg_replace('/[^a-zA-Z0-9_-]/', '_', (string)$field_key);
-            $html .= '<div class="shopee-opt-group">';
+            $html .= '<div class="shopee-opt-group pf-service-quantity-field">';
+            $html .= '<div class="pf-service-quantity-stack">';
             $html .= '<div class="quantity-container shopee-opt-btn" style="display: inline-flex; justify-content: space-between; gap: 1rem; width: 175px; cursor: default;">';
             $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, -1)">&minus;</button>';
             $html .= '<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" data-pos-quantity-max="10000" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none; position: relative; z-index: 1; pointer-events: auto; user-select: text; cursor: text;" value="' . $saved_qty . '" aria-label="Quantity" onfocus="this.select()">';
             $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, 1)">+</button>';
             $html .= '</div>';
-            $html .= '<div class="pf-service-quantity-limit-hint" style="display:none;color:#dc2626;font-size:12px;font-weight:700;margin-top:4px;">Maximum quantity reached (10,000)</div>';
+            $html .= '<div class="pf-service-quantity-limit-hint" style="display:none;color:#dc2626;font-size:12px;font-weight:700;margin-top:4px;width:100%;">Maximum quantity reached (10,000)</div>';
+            $html .= '</div>';
             $html .= '</div>';
             break;
             
@@ -1683,6 +1685,11 @@ const PF_SERVICE_QUANTITY_LIMIT_REACHED = 'Maximum quantity reached (10,000)';
 
 function pfServiceQuantityLimitHintEl(input) {
     if (!input) return null;
+    const stack = input.closest('.pf-service-quantity-stack');
+    if (stack) {
+        const inStack = stack.querySelector('.pf-service-quantity-limit-hint');
+        if (inStack) return inStack;
+    }
     const field = input.closest('.shopee-form-field');
     if (field) {
         const scoped = field.querySelector('.pf-service-quantity-limit-hint');
