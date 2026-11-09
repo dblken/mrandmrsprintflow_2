@@ -2588,7 +2588,7 @@ $online_closed_count = 0;
                         <tbody class="divide-y divide-gray-100">
                             <template x-for="item in paginatedListItems" :key="item.key">
                                 <tr
-                                    :class="item.kind === 'section' ? 'pf-orders-section-row' : (item.kind === 'urgent-expand' ? 'pf-orders-urgent-expand-row' : 'group transition-all relative cursor-pointer customization-row')"
+                                    :class="item.kind === 'section' ? 'pf-orders-section-row' : ((item.kind === 'urgent-expand' || item.kind === 'urgent-collapse') ? 'pf-orders-urgent-expand-row' : 'group transition-all relative cursor-pointer customization-row')"
                                     @click="isValidOrderListRow(item) ? openOrderListItem(item) : null"
                                 >
                                     <template x-if="item.kind === 'section'">
@@ -2601,6 +2601,13 @@ $online_closed_count = 0;
                                             <button type="button" class="pf-urgent-expand-btn" @click.stop="expandUrgentOrders()">
                                                 Show all urgent orders
                                                 (<span x-text="item.totalUrgent"></span>)
+                                            </button>
+                                        </td>
+                                    </template>
+                                    <template x-if="item.kind === 'urgent-collapse'">
+                                        <td colspan="7" class="px-6 py-2">
+                                            <button type="button" class="pf-urgent-expand-btn" @click.stop="collapseUrgentOrders()">
+                                                Show less
                                             </button>
                                         </td>
                                     </template>
@@ -2701,6 +2708,13 @@ $online_closed_count = 0;
                             <div class="customizations-mobile-urgent-expand">
                                 <button type="button" class="pf-urgent-expand-btn" style="width:100%;justify-content:center;" @click.stop="expandUrgentOrders()">
                                     Show all urgent orders (<span x-text="item.totalUrgent"></span>)
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="item.kind === 'urgent-collapse'">
+                            <div class="customizations-mobile-urgent-expand">
+                                <button type="button" class="pf-urgent-expand-btn" style="width:100%;justify-content:center;" @click.stop="collapseUrgentOrders()">
+                                    Show less
                                 </button>
                             </div>
                         </template>
@@ -6214,6 +6228,14 @@ window.pfServiceFieldCatalog = (() => {
                     || row.is_urgent_request === 1
                     || row.is_urgent_request === '1';
             },
+            orderIsActiveUrgentRequest(row) {
+                if (!this.orderIsUrgentRequest(row)) return false;
+                if (this.isPosSimplifiedView && this.isPosWalkInSource(row)) {
+                    return this.getPosWalkInBucket(row) === 'PENDING';
+                }
+                const stage = this.getOnlineStageBucket(row);
+                return stage !== 'COMPLETED' && stage !== 'CLOSED';
+            },
             orderHasChangeItemBadge(row) {
                 if (!row) return false;
                 return row.has_change_item === true
@@ -6477,7 +6499,7 @@ window.pfServiceFieldCatalog = (() => {
             },
             orderPriorityFilterMatches(row) {
                 if (this.priorityFilter === 'ALL') return true;
-                if (this.priorityFilter === 'URGENT') return this.orderIsUrgentRequest(row);
+                if (this.priorityFilter === 'URGENT') return this.orderIsActiveUrgentRequest(row);
                 if (this.priorityFilter === 'REGULAR') {
                     return !!row.has_priority_field && !this.orderIsUrgentRequest(row);
                 }
@@ -10419,7 +10441,7 @@ window.pfServiceFieldCatalog = (() => {
                 const urgent = [];
                 const regular = [];
                 sorted.forEach((row) => {
-                    if (this.orderIsUrgentRequest(row)) {
+                    if (this.orderIsActiveUrgentRequest(row)) {
                         urgent.push(row);
                     } else {
                         regular.push(row);
@@ -10434,7 +10456,7 @@ window.pfServiceFieldCatalog = (() => {
                 if (pageStart > 0 && this.activeStatus === 'ALL') {
                     const priorRow = this.filteredOrders[pageStart - 1];
                     if (priorRow) {
-                        prevUrgent = this.orderIsUrgentRequest(priorRow);
+                        prevUrgent = this.orderIsActiveUrgentRequest(priorRow);
                     }
                 }
                 const safeRows = Array.isArray(rows) ? rows : [];
@@ -10442,7 +10464,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (!jo || typeof jo !== 'object') {
                         return;
                     }
-                    const isUrgent = this.activeStatus === 'ALL' && this.orderIsUrgentRequest(jo);
+                    const isUrgent = this.activeStatus === 'ALL' && this.orderIsActiveUrgentRequest(jo);
                     if (isUrgent && prevUrgent !== true) {
                         items.push({
                             kind: 'section',
@@ -10452,6 +10474,13 @@ window.pfServiceFieldCatalog = (() => {
                         });
                     }
                     if (!isUrgent && prevUrgent === true) {
+                        if (this.shouldShowUrgentCollapseControl(pageStart)) {
+                            items.push({
+                                kind: 'urgent-collapse',
+                                key: `urgent-collapse-${pageStart + index}`,
+                                jo: null
+                            });
+                        }
                         items.push({
                             kind: 'section',
                             key: `section-all-${pageStart + index}`,
@@ -10466,7 +10495,30 @@ window.pfServiceFieldCatalog = (() => {
                     });
                     prevUrgent = isUrgent;
                 });
+                if (pageStart === 0 && prevUrgent === true && this.shouldShowUrgentCollapseControl(pageStart)) {
+                    const hasCollapse = items.some((item) => item.kind === 'urgent-collapse');
+                    if (!hasCollapse) {
+                        items.push({
+                            kind: 'urgent-collapse',
+                            key: 'urgent-collapse-tail',
+                            jo: null
+                        });
+                    }
+                }
                 return items;
+            },
+
+            countActiveUrgentOrders(rows = null) {
+                const source = Array.isArray(rows) ? rows : this.filteredOrders;
+                return source.filter((row) => this.orderIsActiveUrgentRequest(row)).length;
+            },
+
+            shouldShowUrgentCollapseControl(pageStart = 0) {
+                if (pageStart !== 0 || !this.urgentOrdersExpanded || this.activeStatus !== 'ALL') {
+                    return false;
+                }
+                const limit = Math.max(1, Number(this.urgentOrdersPreviewLimit) || 3);
+                return this.countActiveUrgentOrders() > limit;
             },
 
             isValidOrderListRow(item) {
@@ -10493,6 +10545,9 @@ window.pfServiceFieldCatalog = (() => {
                     if (item.kind === 'urgent-expand') {
                         return Number(item.totalUrgent) > Number(item.hiddenCount || 0);
                     }
+                    if (item.kind === 'urgent-collapse') {
+                        return true;
+                    }
                     return this.isValidOrderListRow(item);
                 });
             },
@@ -10501,7 +10556,7 @@ window.pfServiceFieldCatalog = (() => {
                 const urgent = [];
                 const regular = [];
                 (Array.isArray(rows) ? rows : []).forEach((row) => {
-                    if (this.orderIsUrgentRequest(row)) {
+                    if (this.orderIsActiveUrgentRequest(row)) {
                         urgent.push(row);
                     } else {
                         regular.push(row);
@@ -10593,6 +10648,11 @@ window.pfServiceFieldCatalog = (() => {
                 this.currentPage = 1;
             },
 
+            collapseUrgentOrders() {
+                this.urgentOrdersExpanded = false;
+                this.currentPage = 1;
+            },
+
             get paginatedOrders() {
                 const start = (this.currentPage - 1) * this.itemsPerPage;
                 const end = start + this.itemsPerPage;
@@ -10680,7 +10740,7 @@ window.pfServiceFieldCatalog = (() => {
                     if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, 'URGENT')) {
                         return Number(this.statusCounts.URGENT || 0);
                     }
-                    return this.orders.filter(o => this.matchesNonStatusFilters(o) && this.orderIsUrgentRequest(o)).length;
+                    return this.orders.filter(o => this.matchesNonStatusFilters(o) && this.orderIsActiveUrgentRequest(o)).length;
                 }
                 if (!hasLocalFilters && Object.prototype.hasOwnProperty.call(this.statusCounts, status)) {
                     return Number(this.statusCounts[status] || 0);

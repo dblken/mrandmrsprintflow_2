@@ -22,6 +22,7 @@ $queries = (string)file_get_contents($root . '/includes/staff_dashboard_queries.
 $assert(strpos($kpi, 'printflow_staff_customization_pending_count') !== false, 'POS KPI uses canonical customization pending count');
 $assert(strpos($kpi, "SELECT COUNT(*) AS count\n             FROM orders o\n             WHERE o.branch_id = ?\n               AND {\$staffOrderScopeSql}") === false, 'legacy raw orders COUNT pending removed from POS KPI');
 $assert(strpos($counts, 'printflow_staff_customization_count_rows') !== false, 'shared count row builder exists');
+$assert(strpos($counts, "in_array(\$urgentStatusKey, ['REJECTED', 'CANCELLED', 'COMPLETED'], true)") !== false, 'urgent KPI excludes completed and cancelled orders');
 $assert(strpos($counts, '_count_key') !== false, 'counts dedupe by order key');
 $assert(strpos($counts, 'jo_api_pick_authoritative_list_row') !== false, 'authoritative status merge on dedupe');
 $assert(strpos($counts, "listSource !== 'pos'") !== false, 'POS scope excludes standalone job/service rows');
