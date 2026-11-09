@@ -3920,6 +3920,17 @@ if (isset($_GET['ajax'])) {
                 btn.textContent = originalText;
                 closeModal();
                 fetchUpdatedTable();
+                if (data.threshold_warning) {
+                    window.alert(data.threshold_warning);
+                }
+                if (data.roll_width_note) {
+                    const go = window.confirm(
+                        data.roll_width_note + '\n\nOpen Roll Tracking now to correct verified roll widths?'
+                    );
+                    if (go && data.roll_tracking_url) {
+                        window.location.href = data.roll_tracking_url;
+                    }
+                }
             } else { 
                 if (data.errors) {
                     for (let key in data.errors) {
