@@ -134,6 +134,14 @@ $assert($tenByFiveQtyTen['ok'] && $tenByFiveQtyTen['selection']['version'] === P
     && ($qtyTenAllocations[16][0]['roll_width_ft'] ?? 0) === 6.0,
     '10×5 at quantity 10 persists a current v2 plan with 50 ft from roll 157 (item 15) and 50 ft from roll 156 (item 16), despite legacy roll widths of 1 ft.');
 
+$shortQtyTen = $resolve([
+    array_replace($tenByFiveQtyTenCandidates[0], ['open_rolls' => [['id' => 157, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 1, 'remaining_length_ft' => 40, 'received_at' => '2026-01-01']]]),
+    array_replace($tenByFiveQtyTenCandidates[1], ['open_rolls' => [['id' => 156, 'branch_id' => 1, 'status' => 'OPEN', 'width_ft' => 1, 'remaining_length_ft' => 40, 'received_at' => '2026-01-02']]]),
+], 10, 5, 10, [], [], true);
+$assert(!$shortQtyTen['ok'] && $shortQtyTen['reason'] === 'insufficient'
+    && (float)($shortQtyTen['shortage']['required_ft'] ?? 0) > 0,
+    '10×5 at quantity 10 is blocked when the eligible 5 ft and 6 ft rolls cannot cover the concrete joined allocation.');
+
 $threeAndFour = [$candidate(13, 3, 1, [70], [1]), $candidate(14, 4, 1, [70], [1])];
 $threeAndFour[0]['material_width'] = 3;
 $threeAndFour[0]['material_dimension_unit'] = 'ft';
@@ -273,6 +281,7 @@ $assert(str_contains($jobService, 'printflow_tarpaulin_normalize_dimensions($cus
 $assert(str_contains($staffCustomizations, "selection.version !== 'roll_fit_v2'")
     && str_contains($staffCustomizations, 'roll_allocations_by_item')
     && str_contains($staffCustomizations, 'this.tarpaulinSelectionMatchesSavedPlan(selectedAssignmentIds)')
+    && str_contains($staffCustomizations, 'tarpaulinCalcFromPersistedPlan')
     && str_contains($staffCustomizations, 'width = parsePositive(materialService.primaryCustom?.width ?? materialService.primaryCustom?.width_ft)'),
     'Production Assignment uses all item allocations from the persisted plan and keeps customer dimensions separate.');
 $assert(str_contains($jobApi, 'Tarpaulin assignment quantity must match this material’s saved roll allocation')

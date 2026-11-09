@@ -6291,6 +6291,18 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return { valid: false, message };
                 }
                 if (Number(serviceId) === 40) {
+                    const selections = validation.tarpaulin_selections && typeof validation.tarpaulin_selections === 'object'
+                        ? Object.values(validation.tarpaulin_selections)
+                        : [];
+                    const concretePlan = selections.some(selection => selection
+                        && selection.version === 'roll_fit_v2'
+                        && selection.roll_allocations_by_item
+                        && Object.keys(selection.roll_allocations_by_item).length > 0);
+                    if (!concretePlan) {
+                        const message = 'Tarpaulin stock could not be verified against a complete roll allocation. Try again.';
+                        posSetServiceStockState(true, '', message);
+                        return { valid: false, message };
+                    }
                     posSetServiceStockState(false, 'Tarpaulin stock is available for these dimensions and quantity.', '');
                     return { valid: true, tracked: true };
                 }

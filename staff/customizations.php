@@ -4545,10 +4545,25 @@ window.pfServiceFieldCatalog = (() => {
                 if (posterUsageError) return posterUsageError;
                 const item = this.getInventoryItem(material.item_id);
                 if (!item) return '';
-                const available = Number(item.current_stock || 0);
-                const needed = this.getMaterialRequiredStock(material.item_id, material.qty);
                 const uom = material.uom || item.unit_of_measure || 'units';
-                if (!(needed > 0) || !(needed > available)) return '';
+                const needed = this.getMaterialRequiredStock(material.item_id, material.qty);
+                if (!(needed > 0)) return '';
+                if (this.isPendingTarpaulinMaterial(material)) {
+                    const allocations = Array.isArray(material.metadata?.tarpaulin_roll_allocations)
+                        ? material.metadata.tarpaulin_roll_allocations.filter(row => row && Number(row.roll_id) > 0)
+                        : [];
+                    if (allocations.length === 1) {
+                        const plannedFt = Number(allocations[0].length_ft || needed);
+                        const rollRemaining = Array.isArray(item.rolls)
+                            ? Number((item.rolls.find(row => Number(row.id) === Number(allocations[0].roll_id)) || {}).remaining_length_ft)
+                            : NaN;
+                        if (Number.isFinite(rollRemaining) && rollRemaining + 1.0e-9 < plannedFt) {
+                            return `Insufficient ${item.name} stock on planned roll #${allocations[0].roll_id}: requested ${plannedFt} ${uom}, available ${rollRemaining} ${uom}.`;
+                        }
+                    }
+                }
+                const available = Number(item.current_stock || 0);
+                if (!(needed > available)) return '';
                 return `Insufficient ${item.name} stock: requested ${needed} ${uom}, available ${available} ${uom} in this branch.`;
             },
             /**
@@ -4714,6 +4729,63 @@ window.pfServiceFieldCatalog = (() => {
                 if (!rollWidth || !window.PrintFlowProductionMaterials?.calculateTarpaulinLinearLength) return null;
                 return window.PrintFlowProductionMaterials.calculateTarpaulinLinearLength(jobWidth, jobHeight, jobQuantity, rollWidth);
             },
+            tarpaulinFinishedQuantityForValidation() {
+                const contextQty = Number((this.materialCompatibilityContext || {}).customerQuantity || 0);
+                const jobQty = Number(this.currentJo?.quantity ?? this.currentJo?.qty ?? 0);
+                return contextQty > 0 ? contextQty : (jobQty > 0 ? jobQty : 0);
+            },
+            tarpaulinDimensionsMatchPersistedPlan(width, height, quantity = null) {
+                const persisted = this.persistedPosTarpaulinSelection();
+                if (!persisted) return false;
+                const qty = Number(quantity ?? this.tarpaulinFinishedQuantityForValidation());
+                if (!(width > 0) || !(height > 0) || !(qty > 0)) return false;
+                const widthOk = Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001;
+                const heightOk = Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001;
+                const qtyOk = Number(persisted.finished_quantity || 0) === Number(qty);
+                return widthOk && heightOk && qtyOk;
+            },
+            /**
+             * Multi-roll custom jobs store per-item footage on the POS plan. Use
+             * that allocation instead of fitting the full print width on one roll.
+             */
+            tarpaulinCalcFromPersistedPlan(material, width, height, quantity = null) {
+                const persisted = this.persistedPosTarpaulinSelection();
+                if (!persisted || !material) return null;
+                const itemId = Number(material.item_id || 0);
+                if (itemId <= 0) return null;
+                if (!this.tarpaulinDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+                if (persisted.version === 'roll_fit_v2' && persisted.roll_allocations_by_item) {
+                    const plannedByItem = persisted.roll_allocations_by_item[itemId]
+                        || persisted.roll_allocations_by_item[String(itemId)]
+                        || [];
+                    const plannedRollAllocations = (Array.isArray(plannedByItem) ? plannedByItem : [])
+                        .filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+                    const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                    if (!(plannedFootage > 0)) return null;
+                    const materialMeta = persisted.material_items?.[itemId]
+                        || persisted.material_items?.[String(itemId)]
+                        || {};
+                    return {
+                        calc: {
+                            required_linear_ft: plannedFootage,
+                            roll_width_ft: Number(materialMeta.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                            orientation: persisted.orientation || '',
+                        },
+                        plannedRollAllocations,
+                    };
+                }
+                if (Number(persisted.item_id) === itemId && Number(persisted.required_linear_ft) > 0) {
+                    return {
+                        calc: {
+                            required_linear_ft: Number(persisted.required_linear_ft),
+                            roll_width_ft: Number(persisted.roll_width_ft || 0),
+                            orientation: persisted.orientation || '',
+                        },
+                        plannedRollAllocations: [],
+                    };
+                }
+                return null;
+            },
             isPendingTarpaulinMaterial(material) {
                 const context = this.materialCompatibilityContext || {};
                 if (!(Number(context.serviceId) === 40 || context.serviceKind === 'tarpaulin')) return false;
@@ -4742,36 +4814,62 @@ window.pfServiceFieldCatalog = (() => {
                     material.dimension_fit_error = 'Enter positive Width and Height (ft) for this Tarpaulin assignment.';
                     return false;
                 }
-                const calc = this.tarpaulinCalculationForItem(material.item_id, width, height);
-                if (!calc || !(Number(calc.required_linear_ft) > 0)) {
-                    // Do not leave an incompatible roll selected with a stale usage value.
-                    const removedName = material.name || 'Tarpaulin roll';
-                    const index = (this.pendingMaterials || []).indexOf(material);
-                    if (index >= 0) this.pendingMaterials.splice(index, 1);
-                    this.productionErrors.material = `"${removedName}" cannot fit ${width} × ${height} ft. Choose another mapped roll or adjust Width/Height.`;
-                    this.showStaffAlert(
-                        'Roll Does Not Fit',
-                        `"${removedName}" cannot fit ${width} × ${height} ft (including rotation). Select another Tarpaulin roll.`
-                    );
-                    return false;
+                const finishedQty = this.tarpaulinFinishedQuantityForValidation();
+                const fromPlan = this.tarpaulinCalcFromPersistedPlan(material, width, height, finishedQty);
+                let calc;
+                let plannedRollAllocations = [];
+                if (fromPlan) {
+                    calc = fromPlan.calc;
+                    plannedRollAllocations = fromPlan.plannedRollAllocations;
+                } else {
+                    const persisted = this.persistedPosTarpaulinSelection();
+                    const multiRollPlan = persisted && persisted.version === 'roll_fit_v2'
+                        && persisted.roll_allocations_by_item
+                        && Object.keys(persisted.roll_allocations_by_item).length > 1;
+                    if (multiRollPlan) {
+                        material.dimension_fit_error = 'These dimensions no longer match the validated POS allocation plan. Restore the order dimensions or ask an administrator to revalidate stock.';
+                        material.qty = '';
+                        material.estimated_qty = null;
+                        material.manual_quantity_confirmed = false;
+                        return false;
+                    }
+                    calc = this.tarpaulinCalculationForItem(material.item_id, width, height, finishedQty);
+                    if (!calc || !(Number(calc.required_linear_ft) > 0)) {
+                        const removedName = material.name || 'Tarpaulin roll';
+                        const index = (this.pendingMaterials || []).indexOf(material);
+                        if (index >= 0) this.pendingMaterials.splice(index, 1);
+                        this.productionErrors.material = `"${removedName}" cannot fit ${width} × ${height} ft. Choose another mapped roll or adjust Width/Height.`;
+                        this.showStaffAlert(
+                            'Roll Does Not Fit',
+                            `"${removedName}" cannot fit ${width} × ${height} ft (including rotation). Select another Tarpaulin roll.`
+                        );
+                        return false;
+                    }
                 }
                 const qty = Number(Number(calc.required_linear_ft).toFixed(3));
-                // Inventory deduction quantity stays linear roll feet — never W×H area.
                 material.qty = qty;
                 material.estimated_qty = qty;
                 material.uom = material.uom || 'ft';
                 material.dimension_fit_error = '';
                 material.usage_method = 'tarpaulin_linear_ft';
-                material.usage_estimate_reason = 'Calculated linear roll length from assignment Width × Height and roll width.';
+                material.usage_estimate_reason = plannedRollAllocations.length
+                    ? 'Using the server-validated linear footage for this roll from the POS allocation plan.'
+                    : 'Calculated linear roll length from assignment Width × Height and roll width.';
                 material.manual_confirmation_required = true;
                 material.manual_quantity_confirmed = true;
                 material.actual_usage_overridden = false;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
-                material.metadata.calculation_version = 'linear_ft_v1';
+                material.metadata.calculation_version = fromPlan ? 'roll_fit_v2' : 'linear_ft_v1';
                 material.metadata.calculated_linear_ft = qty;
                 material.metadata.inventory_uom = 'ft';
                 material.metadata.customer_width_ft = width;
                 material.metadata.customer_height_ft = height;
+                material.metadata.tarpaulin_roll_allocations = plannedRollAllocations.map(row => ({
+                    roll_id: Number(row.roll_id),
+                    roll_code: String(row.roll_code || ''),
+                    roll_width_ft: Number(row.roll_width_ft || calc.roll_width_ft || 0),
+                    length_ft: Number(row.length_ft),
+                }));
                 material.metadata.material_usage = {
                     estimate: qty,
                     actual: qty,

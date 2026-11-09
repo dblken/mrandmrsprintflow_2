@@ -105,8 +105,10 @@ $assert(str_contains($stock, 'printflow_pos_tarpaulin_selection(')
     'POS stock validation resolves only equal-or-wider rolls and returns explicit width reconciliation errors.');
 $assert(str_contains($pos, 'tarpaulin roll widths? need reconciliation|recorded open-roll footage')
     && str_contains($pos, 'if (Number(serviceId) === 40 && issues.length)')
+    && str_contains($pos, "selection.version === 'roll_fit_v2'")
+    && str_contains($pos, 'Tarpaulin stock could not be verified against a complete roll allocation')
     && str_contains($pos, 'Tarpaulin stock is available for these dimensions and quantity.'),
-    'Tarpaulin reconciliation details are shown instead of generic zero-stock text, and a successful fresh check gets an availability state.');
+    'Tarpaulin reconciliation details are shown instead of generic zero-stock text, and availability requires a concrete roll_fit_v2 plan.');
 $assert(str_contains($pos, 'requestVersion !== posServiceStockRequestVersion')
     && str_contains($pos, "body.addEventListener('input'")
     && str_contains($pos, "body.addEventListener('change'")

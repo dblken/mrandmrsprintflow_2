@@ -198,6 +198,7 @@ assert.match(customSource, /display:flex;\s*flex-direction:row/, 'Width and Heig
 assert.match(customSource, /customer_width_ft/, 'pending materials store customer width separately from inventory qty');
 assert.match(customSource, /customer_height_ft/, 'pending materials store customer height separately from inventory qty');
 assert.match(customSource, /recalculatePendingTarpaulinFromDimensions/, 'editing dimensions recalculates/revalidates roll fit');
+assert.match(customSource, /tarpaulinCalcFromPersistedPlan/, 'multi-roll jobs reuse saved per-item footage when dimensions are unchanged');
 assert.match(customSource, /cannot fit/, 'incompatible dimensions remove/clear the selected roll');
 assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]*Actual Usage:/,
     'visible Actual Usage input is hidden for Tarpaulin rows');
@@ -218,9 +219,50 @@ const isTarpMethod = extractObjectMethod(
     'handlePendingTarpaulinDimensionInput(material, field, value) {'
 );
 
+const planHelpersSource = `
+    tarpaulinFinishedQuantityForValidation() {
+        const contextQty = Number((this.materialCompatibilityContext || {}).customerQuantity || 0);
+        const jobQty = Number(this.currentJo?.quantity ?? this.currentJo?.qty ?? 0);
+        return contextQty > 0 ? contextQty : (jobQty > 0 ? jobQty : 0);
+    },
+    tarpaulinDimensionsMatchPersistedPlan(width, height, quantity = null) {
+        const persisted = this.persistedPosTarpaulinSelection();
+        if (!persisted) return false;
+        const qty = Number(quantity ?? this.tarpaulinFinishedQuantityForValidation());
+        if (!(width > 0) || !(height > 0) || !(qty > 0)) return false;
+        return Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001
+            && Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001
+            && Number(persisted.finished_quantity || 0) === Number(qty);
+    },
+    tarpaulinCalcFromPersistedPlan(material, width, height, quantity = null) {
+        const persisted = this.persistedPosTarpaulinSelection();
+        if (!persisted || !material) return null;
+        const itemId = Number(material.item_id || 0);
+        if (itemId <= 0 || !this.tarpaulinDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+        if (persisted.version === 'roll_fit_v2' && persisted.roll_allocations_by_item) {
+            const plannedByItem = persisted.roll_allocations_by_item[itemId] || [];
+            const plannedRollAllocations = plannedByItem.filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+            const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+            if (!(plannedFootage > 0)) return null;
+            const materialMeta = persisted.material_items?.[itemId] || {};
+            return {
+                calc: {
+                    required_linear_ft: plannedFootage,
+                    roll_width_ft: Number(materialMeta.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                    orientation: persisted.orientation || ''
+                },
+                plannedRollAllocations
+            };
+        }
+        return null;
+    },
+    persistedPosTarpaulinSelection() { return null; }
+`;
+
 const runtime = new Function(`return ({
     ${isTarpMethod},
     ${recalcMethod},
+    ${planHelpersSource},
     materialCompatibilityContext: { serviceId: 40, serviceKind: 'tarpaulin', customerQuantity: 1 },
     pendingMaterials: [],
     productionErrors: { material: '' },
@@ -289,6 +331,50 @@ assert.strictEqual(runtime.recalculatePendingTarpaulinFromDimensions(material), 
     'incompatible dimensions reject the selected 3ft roll');
 assert.strictEqual(runtime.pendingMaterials.length, 0, 'incompatible roll is removed from the assignment queue');
 assert.ok(runtime._alerted, 'staff receives a clear unfit-roll alert');
+
+const multiRollPlan = {
+    version: 'roll_fit_v2', branch_id: 1, width_ft: 10, height_ft: 5, finished_quantity: 10,
+    orientation: 'original',
+    material_items: {
+        15: { name: '5ft Tarpaulin', roll_width_ft: 5 },
+        16: { name: '6ft Tarpaulin', roll_width_ft: 6 },
+    },
+    roll_allocations_by_item: {
+        15: [{ roll_id: 157, roll_width_ft: 5, length_ft: 50 }],
+        16: [{ roll_id: 156, roll_width_ft: 6, length_ft: 50 }],
+    },
+};
+const multiRuntime = new Function(`return ({
+    ${isTarpMethod},
+    ${recalcMethod},
+    ${planHelpersSource},
+    materialCompatibilityContext: { serviceId: 40, serviceKind: 'tarpaulin', customerQuantity: 10 },
+    pendingMaterials: [],
+    productionErrors: { material: '' },
+    currentJo: { quantity: 10 },
+    persistedPosTarpaulinSelection() { return ${JSON.stringify(multiRollPlan)}; },
+    getInventoryItem(id) {
+        const names = { 15: '5ft Tarpaulin', 16: '6ft Tarpaulin' };
+        return { id: Number(id), name: names[id] || 'Tarpaulin', unit_of_measure: 'ft', current_stock: 50.1 };
+    },
+    tarpaulinCalculationForItem() {
+        return { required_linear_ft: 100, roll_width_ft: 5, orientation: 'original', run_length_per_piece_ft: 10 };
+    },
+    clearPendingMaterialConfirmationError() {},
+    showStaffAlert() {}
+});`)();
+multiRuntime.pendingMaterials = [
+    { item_id: 15, name: '5ft Tarpaulin', customer_width_ft: 10, customer_height_ft: 5, usage_method: 'tarpaulin_linear_ft', metadata: {} },
+    { item_id: 16, name: '6ft Tarpaulin', customer_width_ft: 10, customer_height_ft: 5, usage_method: 'tarpaulin_linear_ft', metadata: {} },
+];
+assert.strictEqual(multiRuntime.recalculatePendingTarpaulinFromDimensions(multiRuntime.pendingMaterials[0]), true,
+    're-entering saved 10×5 dimensions keeps the 5ft material on its 50 ft plan');
+assert.strictEqual(multiRuntime.pendingMaterials[0].qty, 50,
+    '5ft Tarpaulin stays at 50 ft, not 100 ft full-width miscalculation');
+assert.strictEqual(multiRuntime.recalculatePendingTarpaulinFromDimensions(multiRuntime.pendingMaterials[1]), true,
+    're-entering saved 10×5 dimensions keeps the 6ft material on its 50 ft plan');
+assert.strictEqual(multiRuntime.pendingMaterials[1].qty, 50,
+    '6ft Tarpaulin stays at 50 ft after dimension input events');
 
 assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
     'non-Tarpaulin services retain the Actual Usage input');
