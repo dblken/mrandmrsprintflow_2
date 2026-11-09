@@ -234,9 +234,15 @@ if (!function_exists('printflow_staff_customization_bucket_counts')) {
                 continue;
             }
             $urgentSeen[$orderId] = true;
-            if (printflow_order_has_urgent_request($orderId)) {
-                $counts['URGENT']++;
+            if (!printflow_order_has_urgent_request($orderId)) {
+                continue;
             }
+            $urgentStatusKey = strtoupper(str_replace(' ', '_', trim((string)($row['status'] ?? ''))));
+            $urgentStatusKey = str_replace(['–', '-'], '_', $urgentStatusKey);
+            if (in_array($urgentStatusKey, ['REJECTED', 'CANCELLED', 'COMPLETED'], true)) {
+                continue;
+            }
+            $counts['URGENT']++;
         }
 
         return $counts;
