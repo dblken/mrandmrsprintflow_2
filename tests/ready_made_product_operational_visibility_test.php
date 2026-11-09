@@ -18,12 +18,13 @@ if (!function_exists('db_table_has_column')) {
     }
 }
 
+$scopeFile = file_get_contents($root . '/includes/ready_made_product_order_scope.php');
 $scopeSql = printflow_ready_made_product_order_scope_sql('o');
 $assert(strpos($scopeSql, 'product_id') !== false, 'ready-made scope keys off product lines (stickers included)');
-$assert(strpos($scopeSql, 'service_id') !== false, 'service lines are excluded from ready-made scope');
+$assert(is_string($scopeFile) && strpos($scopeFile, 'custom_service') === false, 'legacy item_type markers do not veto catalog product_id lines');
+$assert(strpos($scopeSql, 'product_id') !== false, 'stickers/T-shirts are scoped by catalog product_id lines');
 
 $helpers = file_get_contents($root . '/includes/expired_product_order_archive.php');
-$scopeFile = file_get_contents($root . '/includes/ready_made_product_order_scope.php');
 $assert($helpers !== false && $scopeFile !== false, 'visibility sources are readable');
 $assert(strpos($helpers, 'printflow_ready_made_product_cancelled_operational_hidden_sql') !== false, 'cancelled ready-made orders are hidden operationally');
 $assert(strpos($helpers, "'pending'") !== false, 'legacy Pending is in the awaiting unpaid bucket');

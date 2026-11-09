@@ -67,11 +67,7 @@ if (!function_exists('printflow_ready_made_product_operational_paid_sql')) {
         $o = printflow_ready_made_product_operational_order_alias($oAlias);
         $rawStatus = "LOWER(TRIM(COALESCE({$o}.status, '')))";
         $rawPayment = "LOWER(TRIM(COALESCE({$o}.payment_status, '')))";
-        $fulfilledOrder = "{$rawStatus} IN (
-            'paid', 'payment confirmed', 'processing', 'in production', 'printing',
-            'approved', 'approved design', 'ready for pickup', 'to pickup',
-            'to pick up', 'completed', 'delivered'
-        )";
+        $fulfilledOrder = printflow_ready_made_product_fulfilled_order_status_sql($o);
         $fulfilledPayment = "{$rawPayment} IN (
             'paid', 'fully paid', 'payment confirmed', 'success', 'successful', 'succeeded'
         )";
@@ -82,24 +78,30 @@ if (!function_exists('printflow_ready_made_product_operational_paid_sql')) {
     }
 }
 
-if (!function_exists('printflow_ready_made_product_checkout_incomplete_sql')) {
-    /**
-     * Legacy + current pre-fulfillment checkout labels (staff UI may read as "Pending").
-     */
-    function printflow_ready_made_product_checkout_incomplete_sql(string $oAlias = 'o'): string
+if (!function_exists('printflow_ready_made_product_fulfilled_order_status_sql')) {
+    function printflow_ready_made_product_fulfilled_order_status_sql(string $oAlias = 'o'): string
     {
         $rawStatus = "LOWER(TRIM(COALESCE({$oAlias}.status, '')))";
-        $legacyPending = "{$rawStatus} IN (
-            'pending', 'pending review', 'pending approval', 'pending verification',
-            'to pay', 'awaiting payment', 'to verify', 'verify pay',
-            'downpayment submitted', 'payment rejected', 'rejected'
-        )";
-        $providerStatus = printflow_ready_made_product_operational_latest_provider_status_expr($oAlias);
-        $providerCheckout = "({$providerStatus}) IN (
-            'awaiting_payment', 'generating', 'failed', 'cancelled', 'expired'
-        )";
 
-        return "(({$legacyPending}) OR ({$providerCheckout}))";
+        return "{$rawStatus} IN (
+            'paid', 'payment confirmed', 'processing', 'in production', 'printing',
+            'approved', 'approved design', 'ready for pickup', 'to pickup',
+            'to pick up', 'completed', 'delivered'
+        )";
+    }
+}
+
+if (!function_exists('printflow_ready_made_product_stale_unpaid_checkout_sql')) {
+    /**
+     * Unpaid checkout still open (any legacy status label that is not post-payment fulfillment).
+     */
+    function printflow_ready_made_product_stale_unpaid_checkout_sql(string $oAlias = 'o'): string
+    {
+        $rawStatus = "LOWER(TRIM(COALESCE({$oAlias}.status, '')))";
+        $notFulfilled = 'NOT (' . printflow_ready_made_product_fulfilled_order_status_sql($oAlias) . ')';
+        $notTerminal = "{$rawStatus} NOT IN ('cancelled', 'canceled', 'expired')";
+
+        return "({$notFulfilled} AND {$notTerminal})";
     }
 }
 
@@ -119,7 +121,7 @@ if (!function_exists('printflow_ready_made_product_operational_hidden_sql')) {
         $providerStatus = printflow_ready_made_product_operational_latest_provider_status_expr($oAlias);
         $expired = "({$rawStatus} = 'expired' OR ({$providerStatus}) = 'expired')";
 
-        $staleUnpaidCheckout = '(' . printflow_ready_made_product_checkout_incomplete_sql($oAlias) . ')
+        $staleUnpaidCheckout = '(' . printflow_ready_made_product_stale_unpaid_checkout_sql($oAlias) . ')
             AND (' . printflow_ready_made_product_operational_age_due_sql($oAlias) . ')';
 
         return "({$readyMade} AND (

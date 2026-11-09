@@ -83,7 +83,7 @@ $assert(is_string($retentionDocNormalized) && stripos($retentionDocNormalized, '
 $assert(strpos($orders, 'fp_display_status') !== false, 'filter panel still supports payment display filtering');
 $assert(strpos($orders, "'PAID', 'EXPIRED', 'COMPLETED'") === false, 'Paid and Expired are removed from Product Orders display-status filter allowlist');
 $assert(strpos($orders, "'COMPLETED'") !== false && strpos($orders, "'EXPIRED' => 'Expired'") === false, 'only Completed remains in the payment-status filter UI');
-$assert(strpos($visibility, 'pending review') !== false, 'stale legacy Pending labels hide without requiring a blank provider row');
+$assert(strpos($visibility, 'stale_unpaid_checkout') !== false, 'stale legacy Pending labels hide via non-fulfillment checkout rule');
 $assert(strpos($visibility, 'return \'0=1\'') === false, 'operational hide does not fail closed on provider schema guards');
 $assert(strpos($helpers, 'printflow_ready_made_product_expired_operational_hidden_sql') !== false, 'expired ready-made rows are hidden operationally');
 $assert(strpos($orders, 'btn-open-archived-orders') === false && strpos($orders, 'openArchivedOrdersModal') === false, 'staff Product Orders Archived UI is removed');

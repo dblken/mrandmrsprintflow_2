@@ -32,8 +32,11 @@ $assert(strpos($orders, '$customer_filter') !== false && strpos($orders, 'printf
 $assert(strpos($operational, 'function printflow_ready_made_product_operational_hidden_sql') !== false, 'canonical hidden predicate exists');
 $assert(strpos($operational, 'function printflow_ready_made_product_operational_visible_sql') !== false, 'canonical visible predicate exists');
 $assert(strpos($operational, 'order_date') !== false && strpos($operational, 'created_at') !== false, '24-hour age uses order creation timestamps');
-$assert(strpos($operational, "'pending review'") !== false, 'legacy Pending labels map to checkout-incomplete');
+$assert(strpos($operational, 'printflow_ready_made_product_fulfilled_order_status_sql') !== false, 'stale rows are any non-fulfillment checkout status (incl. legacy Pending)');
 $assert(strpos($operational, 'printflow_ready_made_product_order_scope_sql') !== false, 'custom/service workflows stay out of scope');
+$assert(strpos($operational, 'printflow_ready_made_product_stale_unpaid_checkout_sql') !== false, 'stale unpaid uses non-fulfillment status, not a narrow Pending list only');
+$scopeFile = file_get_contents($root . '/includes/ready_made_product_order_scope.php');
+$assert(is_string($scopeFile) && strpos($scopeFile, 'custom_service') === false && strpos($scopeFile, 'oi_st') === false, 'sticker/catalog lines are not vetoed by legacy item_type in scope SQL');
 $assert(strpos($operational, 'return \'0=1\'') === false, 'operational hide must not fail closed when provider schema is guarded');
 
 $assert(strpos($archive, 'return printflow_ready_made_product_operational_hidden_sql') !== false, 'archive lists delegate to the shared operational rule');
