@@ -106,5 +106,10 @@ foreach ($requiredWiring as $relativePath => $needle) {
         exit(1);
     }
 }
+$adminOrdersManagement = file_get_contents(dirname(__DIR__) . '/admin/orders_management.php');
+if (!is_string($adminOrdersManagement) || !str_contains($adminOrdersManagement, 'printflow_expired_product_order_exclude_archived_sql')) {
+    fwrite(STDERR, "Admin product orders must apply ready-made operational exclusion.\n");
+    exit(1);
+}
 
 echo "PASS: Admin transaction visibility allowlist, fail-closed statuses, verified payment, and active status\n";

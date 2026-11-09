@@ -15,6 +15,7 @@ require_once __DIR__ . '/../includes/provider_payments.php';
 require_once __DIR__ . '/../includes/change_item_workflow.php';
 require_once __DIR__ . '/../includes/pos_customer_helpers.php';
 require_once __DIR__ . '/../includes/staff_access.php';
+require_once __DIR__ . '/../includes/expired_product_order_archive.php';
 
 header('Content-Type: application/json');
 
@@ -41,7 +42,7 @@ $order_row = db_query(
             COALESCE(c.contact_number, c.email, '') AS customer_contact
      FROM orders o
      LEFT JOIN customers c ON o.customer_id = c.customer_id
-     WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o'),
+     WHERE o.order_id = ? AND " . printflow_order_archive_scope_sql('o') . " AND " . printflow_expired_product_order_exclude_archived_sql('o'),
     'i',
     [$order_id]
 );

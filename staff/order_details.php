@@ -16,9 +16,7 @@ require_once __DIR__ . '/../includes/staff_pending_check.php';
 
 $staffBranchId = printflow_branch_filter_for_user() ?? (int)($_SESSION['branch_id'] ?? 1);
 $staffOrderScopeSql = printflow_staff_order_source_sql('o');
-$retentionOnlineScopeSql = printflow_staff_order_source_sql('o', 'online');
-$overdueProductOrderSql = "(o.order_type = 'product' AND {$retentionOnlineScopeSql} AND "
-    . printflow_expired_product_order_overdue_for_display_sql('o') . ')';
+$operationalExcludeSql = printflow_expired_product_order_exclude_archived_sql('o');
 $staffAccessMeta = printflow_get_staff_access_meta();
 if (($staffAccessMeta['key'] ?? '') === 'online'
     && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
@@ -52,7 +50,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
         }
         $postedOrder = db_query(
             "SELECT o.* FROM orders o WHERE o.order_id = ?
-             AND NOT {$overdueProductOrderSql} LIMIT 1",
+             AND {$operationalExcludeSql} LIMIT 1",
             'i',
             [$order_id]
         ) ?: [];
@@ -82,7 +80,7 @@ $order_result = db_query("
            c.customer_id as cust_id
     FROM orders o 
     LEFT JOIN customers c ON o.customer_id = c.customer_id 
-    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . " AND NOT {$overdueProductOrderSql}
+    WHERE o.order_id = ? AND o.branch_id = ? AND {$staffOrderScopeSql} AND " . printflow_order_archive_scope_sql('o') . " AND {$operationalExcludeSql}
 ", 'ii', [$order_id, $staffBranchId]);
 
 if (empty($order_result)) {

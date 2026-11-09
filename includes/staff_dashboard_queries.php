@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/staff_dashboard_revenue.php';
 require_once __DIR__ . '/staff_status_filters.php';
 require_once __DIR__ . '/functions.php';
+require_once __DIR__ . '/expired_product_order_archive.php';
 
 if (!function_exists('printflow_staff_list_page_size')) {
     function printflow_staff_list_page_size(): int
@@ -50,7 +51,9 @@ if (!function_exists('printflow_staff_recent_orders_visibility_sql')) {
             )";
         }
 
-        return "({$productSql} OR {$customSql})";
+        $excludeStaleReadyMade = printflow_expired_product_order_exclude_archived_sql($alias);
+
+        return "(({$productSql} OR {$customSql}) AND {$excludeStaleReadyMade})";
     }
 }
 

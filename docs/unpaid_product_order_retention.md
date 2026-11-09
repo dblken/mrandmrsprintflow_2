@@ -1,8 +1,17 @@
 # Unpaid Product Order Retention
 
-`cron/cleanup_expired_product_orders.php` permanently removes online product
-orders that remain unpaid and have been in **Awaiting Payment** or **Expired**
-for **more than 24 hours**. The cleanup rechecks the current order and payment
+Operational staff/admin lists hide **ready-made catalog product** orders
+(including stickers) when they are **Cancelled** or remain unpaid in
+**Pending / To Pay / Awaiting Payment / Expired** for more than 24 hours from
+`orders.order_date` (awaiting) or the recorded expired transition (expired).
+Service and custom orders are unaffected. Rows remain in the database for audit
+unless physical cleanup is explicitly enabled.
+
+`cron/cleanup_expired_product_orders.php` can permanently remove eligible
+ready-made online product orders that remain unpaid and have been in **Awaiting
+Payment** or **Expired** for **more than 24 hours** when
+`PRINTFLOW_EXPIRED_PRODUCT_ORDER_PHYSICAL_CLEANUP` is set to true at deploy time.
+By default the cron run is a no-op and visibility is handled in SQL only. The cleanup rechecks the current order and payment
 ledger while holding row locks immediately before deleting. Payment status
 values indicating success and active/successful order statuses are protected.
 Payment submissions, linked job records, and inventory movement rows do not

@@ -24,6 +24,8 @@ $staffOrderScopeSql = printflow_staff_order_source_sql('o', $staffAccessMeta['ke
 $staffOrderScopeSqlNoAlias = printflow_staff_order_source_sql('orders', $staffAccessMeta['key'] ?? null);
 $staffOrderScopeSql .= ' AND ' . printflow_order_archive_scope_sql('o');
 $staffOrderScopeSqlNoAlias .= ' AND ' . printflow_order_archive_scope_sql('orders');
+$staffOrderScopeSql .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
+$staffOrderScopeSqlNoAlias .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('orders');
 $is_pos_staff = ($staffAccessMeta['key'] ?? '') === 'pos';
 
 // Some production databases may not have `orders.order_type` (older schema).
