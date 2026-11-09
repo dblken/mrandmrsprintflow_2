@@ -88,6 +88,7 @@ try {
                 <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" id="quantity-input" name="quantity" class="qty-input-field pf-service-quantity-input" data-pos-quantity-max="10000" style="border:none;text-align:center;width:60px;font-size:.875rem;font-weight:500;color:#374151;background:transparent;outline:none;position:relative;z-index:1;pointer-events:auto;user-select:text;cursor:text;" value="1" aria-label="Quantity" onfocus="this.select()">
                 <button type="button" class="qty-btn-plus" style="background:none;border:none;color:#6b7280;font-size:1.125rem;font-weight:600;cursor:pointer;" onclick="window.pfChangeQty(this, 1)">+</button>
             </div>
+            <div class="pf-service-quantity-limit-hint" style="display:none;color:#dc2626;font-size:12px;font-weight:700;margin-top:4px;">Maximum quantity reached (10,000)</div>
         </div>
     </div>
     <div class="shopee-form-row">

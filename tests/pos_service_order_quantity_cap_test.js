@@ -15,6 +15,8 @@ assert.match(pos, /POS_MAX_SERVICE_ORDER_QUANTITY = 10000/, 'POS service modal u
 assert.match(pos, /Maximum quantity is 10,000\./, 'POS surfaces the shared maximum-quantity message');
 assert.match(pos, /dataset\.posQuantityMax = String\(POS_MAX_SERVICE_ORDER_QUANTITY\)/, 'POS binds the cap into quantity inputs');
 assert.match(renderer, /data-pos-quantity-max="10000"/, 'Shared renderer stamps the 10,000 cap');
+assert.match(renderer, /pf-service-quantity-limit-hint[\s\S]*Maximum quantity reached \(10,000\)/, 'Shared renderer renders the max-quantity indicator');
+assert.match(renderer, /window\.pfSyncServiceQuantityLimitHint = pfSyncServiceQuantityLimitHint/, 'POS can refresh the quantity limit indicator');
 assert.match(renderer, /maxlength="5"/, 'Renderer allows up to five digits (10,000)');
 assert.match(fieldsApi, /data-pos-quantity-max="10000"/, 'Endpoint-rendered Mugs quantity uses the cap');
 assert.match(cartHandler, /printflow_pos_parse_service_order_quantity/, 'Cart API validates service quantity separately from products');

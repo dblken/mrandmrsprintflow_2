@@ -27,19 +27,27 @@ const context = {
   Math,
 };
 vm.runInNewContext(
-  renderer.slice(start, end) + '\nglobalThis.quantityTest = { validateQuantity, pfChangeQty, pfRejectNonDigitServiceQuantity, pfServiceQuantityInvalidMessage };',
+  renderer.slice(start, end)
+  + '\nglobalThis.quantityTest = { validateQuantity, pfChangeQty, pfRejectNonDigitServiceQuantity, pfServiceQuantityInvalidMessage, pfSyncServiceQuantityLimitHint, pfServiceQuantityLimitHintEl };',
   context
 );
 
-function input(value, posQuantityMax = null) {
+function input(value, posQuantityMax = null, { withHint = false } = {}) {
+  const hint = withHint ? { style: { display: 'none' }, textContent: '' } : null;
+  const field = withHint ? { querySelector(sel) { return sel === '.pf-service-quantity-limit-hint' ? hint : null; } } : null;
   return {
     value,
     dataset: posQuantityMax ? { posQuantityMax: String(posQuantityMax) } : {},
+    closest(sel) {
+      if (sel === '.shopee-form-field' && field) return field;
+      return null;
+    },
     getAttribute(name) {
       return posQuantityMax && name === 'data-pos-quantity-max' ? String(posQuantityMax) : null;
     },
     selectionStart: String(value).length,
     selectionEnd: String(value).length,
+    _hint: hint,
     validityMessage: '',
     classList: { contains() { return true; } },
     matches(selector) {
@@ -162,12 +170,14 @@ context.quantityTest.pfChangeQty(button, 1);
 assert.equal(boundary.value, '101', 'plus button increments beyond the old 100-item cap');
 context.quantityTest.pfChangeQty(button, -1);
 assert.equal(boundary.value, '100', 'minus button decrements and refreshes validation');
-const largeBoundary = input('9999', 10000);
+const largeBoundary = input('9999', 10000, { withHint: true });
 const largeContainer = { querySelector() { return largeBoundary; } };
 context.quantityTest.pfChangeQty({ closest() { return largeContainer; }, parentElement: largeContainer }, 1);
 assert.equal(largeBoundary.value, '10000', 'plus control accepts the service maximum');
 context.quantityTest.pfChangeQty({ closest() { return largeContainer; }, parentElement: largeContainer }, 1);
 assert.equal(largeBoundary.value, '10000', 'plus control clamps at the service maximum');
+assert.equal(largeBoundary._hint.style.display, 'block', 'service maximum shows the red limit indicator');
+assert.equal(largeBoundary._hint.textContent, 'Maximum quantity reached (10,000)');
 const fiveHundred = input('500', 10000);
 const fiveHundredContainer = { querySelector() { return fiveHundred; } };
 const fiveHundredButton = { closest() { return fiveHundredContainer; }, parentElement: fiveHundredContainer };

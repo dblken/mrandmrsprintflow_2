@@ -792,6 +792,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" data-pos-quantity-max="10000" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none; position: relative; z-index: 1; pointer-events: auto; user-select: text; cursor: text;" value="' . $saved_qty . '" aria-label="Quantity" onfocus="this.select()">';
             $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, 1)">+</button>';
             $html .= '</div>';
+            $html .= '<div class="pf-service-quantity-limit-hint" style="display:none;color:#dc2626;font-size:12px;font-weight:700;margin-top:4px;">Maximum quantity reached (10,000)</div>';
             $html .= '</div>';
             break;
             
@@ -1678,6 +1679,32 @@ function pfServiceQuantityInput(root) {
         || document.querySelector('#quantity-input');
 }
 
+const PF_SERVICE_QUANTITY_LIMIT_REACHED = 'Maximum quantity reached (10,000)';
+
+function pfServiceQuantityLimitHintEl(input) {
+    if (!input) return null;
+    const field = input.closest('.shopee-form-field');
+    if (field) {
+        const scoped = field.querySelector('.pf-service-quantity-limit-hint');
+        if (scoped) return scoped;
+    }
+    const group = input.closest('.shopee-opt-group');
+    return group ? group.querySelector('.pf-service-quantity-limit-hint') : null;
+}
+
+function pfSyncServiceQuantityLimitHint(input) {
+    if (!input) return;
+    const hint = pfServiceQuantityLimitHintEl(input);
+    if (!hint) return;
+    const max = pfServiceQuantityMax(input);
+    const val = Number(String(input.value || '').replace(/^0+/, '') || '0');
+    const atMax = Number.isInteger(val) && val >= max && max <= 10000;
+    hint.style.display = atMax ? 'block' : 'none';
+    if (atMax) {
+        hint.textContent = PF_SERVICE_QUANTITY_LIMIT_REACHED;
+    }
+}
+
 function pfServiceQuantityMax(input) {
     const configured = Number(input && input.dataset
         ? (input.dataset.posQuantityMax || input.getAttribute('data-pos-quantity-max') || 0)
@@ -1690,8 +1717,18 @@ function pfServiceQuantityMax(input) {
 function increaseQty() {
     const i = pfServiceQuantityInput();
     if (!i) return;
+    const max = pfServiceQuantityMax(i);
     const val = Number(i.value);
-    i.value = String(Math.min(pfServiceQuantityMax(i), (Number.isInteger(val) && val >= 1 ? val : 1) + 1));
+    const base = Number.isInteger(val) && val >= 1 ? val : 1;
+    if (base >= max) {
+        i.value = String(max);
+        pfSyncServiceQuantityLimitHint(i);
+        i.setCustomValidity(PF_SERVICE_QUANTITY_LIMIT_REACHED);
+        validateQuantity(i);
+        i.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+    i.value = String(Math.min(max, base + 1));
     validateQuantity(i);
     i.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -1741,6 +1778,7 @@ function validateQuantity(input, commit = false) {
 
     input.value = String(val);
     input.setCustomValidity('');
+    pfSyncServiceQuantityLimitHint(input);
     if (typeof window.calculateEstimatedPrice === 'function') window.calculateEstimatedPrice();
     return true;
 }
@@ -1776,7 +1814,8 @@ function pfRejectNonDigitServiceQuantity(event) {
         const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
         if (wouldExceedMax(input.value.slice(0, start) + event.key + input.value.slice(end))) {
             event.preventDefault();
-            input.setCustomValidity(maxMessage);
+            input.setCustomValidity(max <= 10000 ? PF_SERVICE_QUANTITY_LIMIT_REACHED : maxMessage);
+            pfSyncServiceQuantityLimitHint(input);
         }
         return;
     }
@@ -1793,7 +1832,8 @@ function pfRejectNonDigitServiceQuantity(event) {
             const inserted = event.data == null ? '' : String(event.data);
             if (wouldExceedMax(input.value.slice(0, start) + inserted + input.value.slice(end))) {
                 event.preventDefault();
-                input.setCustomValidity(maxMessage);
+                input.setCustomValidity(max <= 10000 ? PF_SERVICE_QUANTITY_LIMIT_REACHED : maxMessage);
+                pfSyncServiceQuantityLimitHint(input);
             }
         }
         return;
@@ -1805,7 +1845,8 @@ function pfRejectNonDigitServiceQuantity(event) {
             : '';
         if (!/^[0-9]*$/.test(pasted) || wouldExceedMax(pasted)) {
             event.preventDefault();
-            input.setCustomValidity(maxMessage);
+            input.setCustomValidity(max <= 10000 ? PF_SERVICE_QUANTITY_LIMIT_REACHED : maxMessage);
+            pfSyncServiceQuantityLimitHint(input);
         }
         return;
     }
@@ -1816,7 +1857,8 @@ function pfRejectNonDigitServiceQuantity(event) {
             : '';
         if (!/^[0-9]*$/.test(dropped) || wouldExceedMax(dropped)) {
             event.preventDefault();
-            input.setCustomValidity(maxMessage);
+            input.setCustomValidity(max <= 10000 ? PF_SERVICE_QUANTITY_LIMIT_REACHED : maxMessage);
+            pfSyncServiceQuantityLimitHint(input);
         }
     }
 }
@@ -1828,9 +1870,18 @@ function pfChangeQty(btn, delta) {
         ? (container.querySelector('.pf-service-quantity-input') || container.querySelector('#quantity-input'))
         : pfServiceQuantityInput();
     if (!input) return;
+    const max = pfServiceQuantityMax(input);
     const current = Number(input.value);
     const val = Number.isInteger(current) && current >= 1 ? current : 1;
-    input.value = String(Math.max(1, Math.min(pfServiceQuantityMax(input), val + delta)));
+    if (delta > 0 && val >= max) {
+        input.value = String(max);
+        pfSyncServiceQuantityLimitHint(input);
+        input.setCustomValidity(PF_SERVICE_QUANTITY_LIMIT_REACHED);
+        validateQuantity(input);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return;
+    }
+    input.value = String(Math.max(1, Math.min(max, val + delta)));
     validateQuantity(input);
     input.dispatchEvent(new Event('input', { bubbles: true }));
 }
@@ -1915,6 +1966,7 @@ window.increaseQty = increaseQty;
 window.decreaseQty = decreaseQty;
 window.validateQuantity = validateQuantity;
 window.pfChangeQty = pfChangeQty;
+window.pfSyncServiceQuantityLimitHint = pfSyncServiceQuantityLimitHint;
 window.pfRejectNonDigitServiceQuantity = pfRejectNonDigitServiceQuantity;
 window.pfServiceQuantityInput = pfServiceQuantityInput;
 window.updateConditionalFields = updateConditionalFields;

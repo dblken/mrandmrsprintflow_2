@@ -6403,7 +6403,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 if (!input.classList.contains('pf-service-quantity-input')) {
                     input.classList.add('pf-service-quantity-input');
                 }
-                input.addEventListener('input', scheduleValidation);
+                input.addEventListener('input', () => {
+                    if (typeof window.pfSyncServiceQuantityLimitHint === 'function') {
+                        window.pfSyncServiceQuantityLimitHint(input);
+                    }
+                    scheduleValidation();
+                });
                 input.addEventListener('change', scheduleValidation);
                 const quantityControls = input.closest('.quantity-container');
                 if (quantityControls) {
