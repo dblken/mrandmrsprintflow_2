@@ -194,8 +194,14 @@ assert.ok(
 // --- Assignment keeps print size and usage visible; width is data, not an input ---
 assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row can still recalculate from the height editor');
 assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin assignment card has a dedicated dimension block');
-assert.match(customSource, /Requested print/, 'customer print dimensions stay visible without a width input');
-assert.match(customSource, /Material usage/, 'calculated roll footage stays visible separately from print dimensions');
+assert.match(customSource, /Customer print size:/, 'customer print dimensions are explicitly labeled');
+assert.match(customSource, /Order quantity:/, 'finished-piece quantity is visible to staff');
+assert.match(customSource, /Configured roll width:/, 'inventory roll width is distinct from print width');
+assert.match(customSource, /Planned linear footage \(this material only\):/, 'per-material footage is labeled and not confused with height');
+assert.match(customSource, /Print height \(customer spec\)/, 'the former Height field is tied to customer spec, not roll width');
+assert.match(customSource, /tarpaulinAssignmentHeightIsLocked/, 'joined-width plans can lock height to the POS allocation');
+assert.match(customSource, /Automatic Tarpaulin allocation/, 'staff guidance explains auto-allocation and deduction timing');
+assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll codes stay out of the UI');
 assert.doesNotMatch(customSource, /aria-label="Tarpaulin customer width in feet"/, 'Width (ft) input is not shown on the assignment card');
 assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll allocation text is not rendered');
 assert.doesNotMatch(customSource, />Width \(ft\)/, 'assignment card does not label a Width (ft) field');

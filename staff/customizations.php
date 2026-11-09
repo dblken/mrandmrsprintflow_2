@@ -3201,25 +3201,53 @@ $online_closed_count = 0;
                                             </div>
                                         </div>
 
+                                        <div x-show="pendingMaterials.length > 0 && isCurrentTarpaulinService()"
+                                             class="pos-tarp-assignment-guide" role="note"
+                                             style="margin-bottom:8px;padding:10px 12px;border-radius:8px;border:1px solid #cbd5e1;background:#f8fafc;color:#334155;font-size:11px;line-height:1.45;">
+                                            <div style="font-weight:800;color:#0f172a;margin-bottom:4px;">Automatic Tarpaulin allocation</div>
+                                            <div x-text="tarpaulinAssignmentStaffGuidance()"></div>
+                                        </div>
                                         <div x-show="pendingMaterials.length > 0" style="display:flex; flex-direction:column; gap:6px;">
                                             <template x-for="(pm, idx) in pendingMaterials" :key="idx">
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
-                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:column; gap:6px; margin-top:6px; width:100%;">
-                                                            <div style="color:#334155; font-size:11px; font-weight:700;">Requested print
-                                                                <span style="font-weight:800;" x-text="(pm.customer_width_ft || '—') + ' × ' + (pm.customer_height_ft || '—') + ' ft'"></span>
+                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:column; gap:5px; margin-top:6px; width:100%;">
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Customer print size:</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentPrintSizeLabel(pm)"></span>
                                                             </div>
-                                                            <div style="color:#334155; font-size:11px; font-weight:700;">Material usage
-                                                                <span style="font-weight:800;" x-text="(pm.qty === '' || pm.qty == null ? '—' : pm.qty) + ' ' + (pm.uom || 'ft')"></span>
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Order quantity:</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentOrderQuantityLabel()"></span>
+                                                                <span style="color:#64748b;font-weight:600;"> finished piece(s)</span>
                                                             </div>
-                                                            <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Height (ft)
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Configured roll width:</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentRollWidthLabel(pm)"></span>
+                                                            </div>
+                                                            <div style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Planned linear footage (this material only):</span>
+                                                                <span style="font-weight:800;" x-text="tarpaulinAssignmentPlannedFootageLabel(pm)"></span>
+                                                                <span style="color:#64748b;font-weight:600;font-size:10px;" x-show="tarpaulinAssignmentPlannedFootageLabel(pm) !== '—'"> — includes all pieces in the order quantity</span>
+                                                            </div>
+                                                            <div x-show="tarpaulinAssignmentHeightIsLocked(pm)" style="color:#334155;font-size:11px;">
+                                                                <span style="font-weight:700;">Print height (customer spec):</span>
+                                                                <span style="font-weight:800;" x-text="(pm.customer_height_ft || '—') + ' ft'"></span>
+                                                                <span style="color:#64748b;font-weight:600;font-size:10px;"> — from POS; not roll usage</span>
+                                                            </div>
+                                                            <label x-show="!tarpaulinAssignmentHeightIsLocked(pm)" style="display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">
+                                                                Print height (customer spec, ft)
                                                                 <input type="number" min="0.01" step="any" inputmode="decimal"
                                                                        :value="pm.customer_height_ft"
                                                                        @input="handlePendingTarpaulinDimensionInput(pm, 'height', $event.target.value)"
-                                                                       aria-label="Tarpaulin customer height in feet"
+                                                                       aria-label="Tarpaulin customer print height in feet"
                                                                        style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
+                                                                <span style="font-weight:600;color:#64748b;font-size:10px;line-height:1.35;">Editing recalculates linear footage for this roll. It does not change inventory until completion.</span>
                                                             </label>
+                                                            <div x-show="tarpaulinAssignmentHeightIsLocked(pm)" style="color:#64748b;font-size:10px;line-height:1.35;">
+                                                                This joined-width plan is locked to the POS allocation. Change dimensions in POS or ask an administrator to revalidate stock.
+                                                            </div>
                                                         </div>
                                                         <div x-show="!isPendingTarpaulinMaterial(pm)" style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
                                                         <label x-show="!isPendingTarpaulinMaterial(pm)" style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
@@ -4930,6 +4958,57 @@ window.pfServiceFieldCatalog = (() => {
                     .filter(id => Number.isInteger(id) && id >= 13 && id <= 16))].sort((a, b) => a - b);
                 return expected.length > 0 && expected.length === actual.length
                     && expected.every((id, index) => id === actual[index]);
+            },
+            tarpaulinSavedPlanIsMultiRoll(selection = this.persistedPosTarpaulinSelection()) {
+                return !!(selection && selection.version === 'roll_fit_v2'
+                    && this.tarpaulinSavedPlanItemIds(selection).length > 1);
+            },
+            tarpaulinAssignmentOrderQuantityLabel() {
+                const qty = this.tarpaulinFinishedQuantityForValidation();
+                return qty > 0 ? String(qty) : '—';
+            },
+            tarpaulinAssignmentPrintSizeLabel(material) {
+                const width = Number(material?.customer_width_ft);
+                const height = Number(material?.customer_height_ft);
+                if (!(width > 0) || !(height > 0)) return '—';
+                return `${width} × ${height} ft`;
+            },
+            tarpaulinAssignmentRollWidthLabel(material) {
+                const metaWidth = Number(material?.metadata?.material_usage?.roll_width_ft
+                    || material?.metadata?.tarpaulin_roll_allocations?.[0]?.roll_width_ft || 0);
+                const item = material ? this.getInventoryItem(material.item_id) : null;
+                const fromItem = item && window.PrintFlowProductionMaterials?.tarpaulinRollWidthFor
+                    ? Number(window.PrintFlowProductionMaterials.tarpaulinRollWidthFor(item))
+                    : 0;
+                const width = fromItem > 0 ? fromItem : metaWidth;
+                return width > 0 ? `${width} ft` : '—';
+            },
+            tarpaulinAssignmentPlannedFootageLabel(material) {
+                const qty = Number(material?.qty ?? material?.metadata?.calculated_linear_ft);
+                if (!Number.isFinite(qty) || qty <= 0) return '—';
+                const uom = String(material?.uom || 'ft').trim() || 'ft';
+                return `${qty} ${uom}`;
+            },
+            tarpaulinAssignmentHeightIsLocked(material) {
+                if (!material || !this.isPendingTarpaulinMaterial(material)) return false;
+                if (!this.tarpaulinSavedPlanIsMultiRoll()) return false;
+                return this.tarpaulinDimensionsMatchPersistedPlan(
+                    Number(material.customer_width_ft),
+                    Number(material.customer_height_ft),
+                    this.tarpaulinFinishedQuantityForValidation()
+                );
+            },
+            tarpaulinAssignmentStaffGuidance() {
+                if (!this.isCurrentTarpaulinService()) return '';
+                const multi = this.tarpaulinSavedPlanIsMultiRoll();
+                const pieces = this.tarpaulinAssignmentOrderQuantityLabel();
+                const intro = multi
+                    ? 'The POS validated a joined-width plan. Each card is one configured roll type with its own planned linear footage.'
+                    : 'The POS validated a single-roll plan. Planned footage is the linear feet to deduct from this roll type.';
+                const qtyNote = pieces !== '—'
+                    ? ` Order quantity is ${pieces} finished piece(s); footage already includes every piece.`
+                    : '';
+                return `${intro}${qtyNote} Confirm Set Price saves the plan; inventory is deducted once when production marks the job complete—not here.`;
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);

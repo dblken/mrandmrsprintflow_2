@@ -183,7 +183,7 @@ assert.match(customSource, /Calculated from customer Width × Height against the
   'calculated Actual Usage is initialized from preserved customer dimensions + roll width');
 assert.match(customSource, /handlePendingTarpaulinDimensionInput/,
   'production assignment can still recalculate when height changes');
-assert.match(customSource, /Requested print/,
+assert.match(customSource, /Customer print size:/,
   'Custom Orders keep the requested print size visible without a Width input');
 assert.doesNotMatch(customSource, />Width \(ft\)/,
   'Production Assignment does not show a Width (ft) input');
