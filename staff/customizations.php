@@ -3206,15 +3206,13 @@ $online_closed_count = 0;
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
-                                                        <div x-show="isPendingTarpaulinMaterial(pm) && tarpaulinAllocationSummary(pm)" x-text="tarpaulinAllocationSummary(pm)" style="margin-top:3px;color:#475569;font-size:11px;"></div>
-                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:row; align-items:flex-end; gap:8px; margin-top:6px; width:100%;">
-                                                            <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Width (ft)
-                                                                <input type="number" min="0.01" step="any" inputmode="decimal"
-                                                                       :value="pm.customer_width_ft"
-                                                                       @input="handlePendingTarpaulinDimensionInput(pm, 'width', $event.target.value)"
-                                                                       aria-label="Tarpaulin customer width in feet"
-                                                                       style="width:100%; box-sizing:border-box; padding:3px 5px; border:1px solid #cbd5e1; border-radius:5px;">
-                                                            </label>
+                                                        <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:column; gap:6px; margin-top:6px; width:100%;">
+                                                            <div style="color:#334155; font-size:11px; font-weight:700;">Requested print
+                                                                <span style="font-weight:800;" x-text="(pm.customer_width_ft || '—') + ' × ' + (pm.customer_height_ft || '—') + ' ft'"></span>
+                                                            </div>
+                                                            <div style="color:#334155; font-size:11px; font-weight:700;">Material usage
+                                                                <span style="font-weight:800;" x-text="(pm.qty === '' || pm.qty == null ? '—' : pm.qty) + ' ' + (pm.uom || 'ft')"></span>
+                                                            </div>
                                                             <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Height (ft)
                                                                 <input type="number" min="0.01" step="any" inputmode="decimal"
                                                                        :value="pm.customer_height_ft"
@@ -8891,8 +8889,14 @@ window.pfServiceFieldCatalog = (() => {
                     const plannedByItem = persisted && persisted.roll_allocations_by_item
                         ? (persisted.roll_allocations_by_item[itemId] || persisted.roll_allocations_by_item[Number(itemId)] || [])
                         : [];
+                    const jobBranch = Number(this.currentJo?.branch_id || this.currentJo?.order_branch_id || 0);
+                    const planBranch = Number(persisted?.branch_id || 0);
+                    // Custom Orders detail payloads often omit branch_id. A saved
+                    // plan is still the actual quantity; the server rejects a
+                    // plan whose branch does not match the job at save time.
+                    const planBranchMatchesJob = planBranch > 0 && (jobBranch <= 0 || jobBranch === planBranch);
                     if (persisted && persisted.version === 'roll_fit_v2'
-                        && Number(persisted.branch_id || 0) === Number(this.currentJo?.branch_id || 0)
+                        && planBranchMatchesJob
                         && plannedByItem.length > 0
                         && Math.abs(Number(persisted.width_ft || 0) - Number(customerWidthFt || 0)) < 0.000001
                         && Math.abs(Number(persisted.height_ft || 0) - Number(customerHeightFt || 0)) < 0.000001) {
@@ -8929,9 +8933,12 @@ window.pfServiceFieldCatalog = (() => {
                     if (calc && Number.isFinite(Number(calc.required_linear_ft)) && Number(calc.required_linear_ft) > 0) {
                         qty = Number(Number(calc.required_linear_ft).toFixed(3));
                         estimatedQty = qty;
-                        usageReason = 'Calculated from customer Width × Height against the selected Tarpaulin roll width.';
-                        // Prefill from known customer dimensions is an explicit calculated usage.
-                        quantityConfirmed = options.autoSelected === true || (customerWidthFt > 0 && customerHeightFt > 0);
+                        usageReason = plannedRollAllocations.length
+                            ? 'Using the server-validated linear footage for this roll from the POS allocation plan.'
+                            : 'Calculated from customer Width × Height against the selected Tarpaulin roll width.';
+                        // A calculated or saved-plan footage is the actual quantity.
+                        // Staff do not have to retype auto-filled dimensions before save.
+                        quantityConfirmed = true;
                     }
                 }
                 this.pendingMaterials.push({

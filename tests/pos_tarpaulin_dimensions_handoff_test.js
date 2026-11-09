@@ -182,9 +182,11 @@ assert.match(customSource, /usage_method: isTarpaulin && estimatedQty !== null \
 assert.match(customSource, /Calculated from customer Width × Height against the selected Tarpaulin roll width/,
   'calculated Actual Usage is initialized from preserved customer dimensions + roll width');
 assert.match(customSource, /handlePendingTarpaulinDimensionInput/,
-  'production assignment keeps its own Width/Height editors');
-assert.match(customSource, /Width \(ft\)/,
-  'Custom Orders / production assignment still expose Width (ft) where required');
+  'production assignment can still recalculate when height changes');
+assert.match(customSource, /Requested print/,
+  'Custom Orders keep the requested print size visible without a Width input');
+assert.doesNotMatch(customSource, />Width \(ft\)/,
+  'Production Assignment does not show a Width (ft) input');
 assert.match(customSource, /Height \(ft\)/,
   'Custom Orders / production assignment still expose Height (ft) where required');
 assert.match(posSource, /custom-dim-width/,

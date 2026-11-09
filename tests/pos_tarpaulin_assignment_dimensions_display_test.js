@@ -191,10 +191,14 @@ assert.ok(
     'PHP display specs still expose customer dimension values'
 );
 
-// --- Assignment Width/Height side-by-side; no visible Tarpaulin Actual Usage ---
-assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row supports editable Tarpaulin Width/Height');
-assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin Width/Height share one side-by-side row container');
-assert.match(customSource, /display:flex;\s*flex-direction:row/, 'Width and Height render side by side in one row');
+// --- Assignment keeps print size and usage visible; width is data, not an input ---
+assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row can still recalculate from the height editor');
+assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin assignment card has a dedicated dimension block');
+assert.match(customSource, /Requested print/, 'customer print dimensions stay visible without a width input');
+assert.match(customSource, /Material usage/, 'calculated roll footage stays visible separately from print dimensions');
+assert.doesNotMatch(customSource, /aria-label="Tarpaulin customer width in feet"/, 'Width (ft) input is not shown on the assignment card');
+assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll allocation text is not rendered');
+assert.doesNotMatch(customSource, />Width \(ft\)/, 'assignment card does not label a Width (ft) field');
 assert.match(customSource, /customer_width_ft/, 'pending materials store customer width separately from inventory qty');
 assert.match(customSource, /customer_height_ft/, 'pending materials store customer height separately from inventory qty');
 assert.match(customSource, /recalculatePendingTarpaulinFromDimensions/, 'editing dimensions recalculates/revalidates roll fit');

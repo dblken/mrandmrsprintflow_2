@@ -310,6 +310,25 @@ assert.deepEqual(planCtx.pendingMaterials.map(row => row.metadata.tarpaulin_roll
   'Assignment display metadata retains exact planned roll IDs');
 assert.equal(planCtx.pendingMaterials[0].customer_width_ft, 10, 'Requested width stays 10 ft, separate from the 5 ft roll width');
 assert.equal(planCtx.pendingMaterials[1].customer_width_ft, 10, 'Requested width stays 10 ft for the second roll material too');
+const confirmedPlan = planCtx.pendingMaterials.map(row => ({
+  qty: Number(row.qty),
+  confirmed: row.manual_quantity_confirmed === true,
+  width: Number(row.customer_width_ft)
+}));
+planCtx.pendingMaterials = [];
+delete planCtx.currentJo.branch_id;
+planCtx.maybeAutoSelectTarpaulinRoll();
+assert.deepEqual(planCtx.pendingMaterials.map(row => Number(row.qty)), [50, 50],
+  'A saved plan still fills actual quantity when the Custom Orders payload has no branch_id');
+assert.ok(planCtx.pendingMaterials.every(row => row.manual_quantity_confirmed === true),
+  'Auto-filled plan footage is already confirmed, so Confirm Set Price does not require retyping dimensions');
+assert.deepEqual(confirmedPlan, [
+  { qty: 50, confirmed: true, width: 10 },
+  { qty: 50, confirmed: true, width: 10 }
+], 'The first auto-fill, which had a branch id, also confirmed 50 ft without a manual edit');
+planCtx.currentJo.branch_id = 1;
+planCtx.pendingMaterials = [];
+planCtx.maybeAutoSelectTarpaulinRoll();
 const planSaveCtx = {
   ...planCtx,
   currentJo: { ...planCtx.currentJo, ink_usage: [] },
