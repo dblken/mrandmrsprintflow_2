@@ -402,6 +402,26 @@ class RollService {
             throw new RuntimeException('Actual Tarpaulin usage exceeds the saved POS roll allocation. Revalidate the job before deduction.');
         }
 
+        // Tarpaulin fit was planned using the linked inventory item's
+        // configured width. Re-read that active item as the authoritative
+        // width source; inv_rolls.width_ft is not a Tarpaulin fit input.
+        $itemRows = db_query("SELECT id, name, status, track_by_roll, unit_of_measure, material_width, material_dimension_unit, category_id FROM inv_items WHERE id = ? LIMIT 1", 'i', [$itemId]);
+        if (!is_array($itemRows) || count($itemRows) !== 1
+            || strtoupper(trim((string)($itemRows[0]['status'] ?? ''))) !== 'ACTIVE') {
+            throw new RuntimeException('The configured Tarpaulin inventory item is no longer active.');
+        }
+        $item = $itemRows[0];
+        $categoryRows = db_query('SELECT name FROM inv_categories WHERE id = ? LIMIT 1', 'i', [(int)($item['category_id'] ?? 0)]) ?: [];
+        $item['category_name'] = (string)($categoryRows[0]['name'] ?? '');
+        require_once __DIR__ . '/tarpaulin_material_calculation.php';
+        $configuredWidthFt = printflow_tarpaulin_parse_nominal_width($item);
+        if ($configuredWidthFt <= 0) throw new RuntimeException('The Tarpaulin item has no valid configured width.');
+        foreach ($plannedByRoll as $rollPlan) {
+            if (abs((float)$rollPlan['roll_width_ft'] - $configuredWidthFt) > 0.01) {
+                throw new RuntimeException('The saved Tarpaulin allocation width no longer matches the active item configuration. Revalidate the job.');
+            }
+        }
+
         [$branchSql, $branchTypes, $branchParams] = printflow_roll_branch_sql('branch_id', $branchId);
         $ids = array_keys($plannedByRoll);
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
@@ -419,10 +439,8 @@ class RollService {
             foreach ($plannedByRoll as $rollId => $rollPlan) {
                 if (!isset($byId[$rollId])) throw new RuntimeException('A roll in the validated Tarpaulin plan is no longer available at this branch.');
                 $roll = $byId[$rollId];
-                if (!is_numeric($roll['width_ft'] ?? null) || (float)$rollPlan['roll_width_ft'] <= 0
-                    || abs((float)$roll['width_ft'] - (float)$rollPlan['roll_width_ft']) > 0.01) {
-                    throw new RuntimeException('A roll width no longer matches the validated Tarpaulin allocation.');
-                }
+                // Width is item-configured for Tarpaulin. This row remains
+                // authoritative for identity, branch, OPEN status and footage.
             }
 
             if ($transactionDate === null || $transactionDate === '') {

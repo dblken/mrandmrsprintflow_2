@@ -374,20 +374,10 @@ function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $heigh
                 || (float)($roll['remaining_length_ft'] ?? 0) <= 0) continue;
             $rollId = (int)($roll['id'] ?? 0);
             if ($rollId > 0) $recordedRolls[$rollId] = max(0.0, (float)($roll['remaining_length_ft'] ?? 0));
-            $rawWidth = $roll['width_ft'] ?? null;
-            $physicalWidth = is_numeric($rawWidth) ? (float)$rawWidth : 0.0;
-            if (!is_finite($physicalWidth) || $physicalWidth <= 0 || $expectedWidth <= 0
-                || abs($physicalWidth - $expectedWidth) > 0.01) {
-                $reconciliation[$itemId . ':' . $rollId] = [
-                    'roll_id' => $rollId,
-                    'width_ft' => $physicalWidth > 0 ? $physicalWidth : 'missing/invalid',
-                    'expected_width_ft' => $expectedWidth,
-                    'remaining_length_ft' => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)),
-                    'item_id' => $itemId,
-                    'item_name' => (string)($candidate['name'] ?? 'Tarpaulin roll'),
-                ];
-                continue;
-            }
+            // The linked ACTIVE Tarpaulin item is the authoritative width
+            // source. inv_rolls.width_ft is legacy receipt metadata and is
+            // deliberately not consulted for Tarpaulin fit/allocation.
+            if ($expectedWidth <= 0) continue;
             try { printflow_tarpaulin_width_fit_plan($w, $h, $q, $expectedWidth); }
             catch (InvalidArgumentException $error) { continue; }
             $matchingRolls[] = $roll;
@@ -865,14 +855,17 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
     $h = printflow_tarpaulin_dimension($height, 'Height');
     $q = printflow_pos_parse_positive_quantity($quantity);
     $usable = [];
+    $requestedBranchId = (int)($candidates[0]['branch_id'] ?? 0);
     foreach ($candidates as $candidate) {
-        if (!is_array($candidate) || strtoupper((string)($candidate['status'] ?? '')) !== 'ACTIVE') continue;
+        if (!is_array($candidate) || strtoupper(trim((string)($candidate['status'] ?? ''))) !== 'ACTIVE'
+            || $requestedBranchId <= 0 || (int)($candidate['branch_id'] ?? 0) !== $requestedBranchId) continue;
         $id = (int)($candidate['id'] ?? 0);
         $rollWidth = printflow_tarpaulin_parse_nominal_width($candidate);
         if ($id <= 0 || $rollWidth <= 0) continue;
-        $rolls = array_values(array_filter((array)($candidate['open_rolls'] ?? []), static function (array $roll) use ($rollWidth): bool {
-            $physicalWidth = (float)($roll['width_ft'] ?? 0);
-            return $physicalWidth <= 0 || abs($physicalWidth - $rollWidth) <= 0.01;
+        $rolls = array_values(array_filter((array)($candidate['open_rolls'] ?? []), static function (array $roll) use ($requestedBranchId): bool {
+            return strtoupper((string)($roll['status'] ?? '')) === 'OPEN'
+                && (int)($roll['branch_id'] ?? 0) === $requestedBranchId
+                && (float)($roll['remaining_length_ft'] ?? 0) > 0;
         }));
         usort($rolls, static fn(array $a, array $b): int => strcmp((string)($a['received_at'] ?? ''), (string)($b['received_at'] ?? '')) ?: ((int)($a['id'] ?? 0) <=> (int)($b['id'] ?? 0)));
         $explicitUsed = 0.0;
@@ -887,6 +880,8 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
         }
         unset($roll);
         $candidate['roll_width_ft'] = $rollWidth;
+        foreach ($rolls as &$roll) $roll['allocation_width_ft'] = $rollWidth;
+        unset($roll);
         $candidate['open_rolls'] = $rolls;
         $usable[$id] = $candidate;
     }

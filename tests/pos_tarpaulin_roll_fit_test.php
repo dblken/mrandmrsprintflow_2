@@ -104,39 +104,30 @@ $splitPieceImpossible = $resolve([$candidate(13, 3, 1, [5, 7])], 3, 6, 2);
 $assert(!$splitPieceImpossible['ok'] && str_contains((string)$splitPieceImpossible['shortage']['message'], 'continuously'),
     'A 6 ft piece cannot be split between a 5 ft and 7 ft remaining roll, despite 12 aggregate ft.');
 
-$wrongWidth = $resolve([$candidate(13, 3, 1, [30], [1])], 3, 6, 1);
-$assert(!$wrongWidth['ok'] && $wrongWidth['reason'] === 'reconciliation'
-    && $wrongWidth['shortage']['required_ft'] === 6.0
-    && str_contains((string)$wrongWidth['shortage']['message'], 'roll #1301')
-    && str_contains((string)$wrongWidth['shortage']['message'], 'Recorded open-roll footage: 30 ft')
-    && str_contains((string)$wrongWidth['shortage']['message'], 'usable matching footage for this order: 0 ft')
-    && str_contains((string)$wrongWidth['shortage']['message'], 'recorded width 1 ft; expected 3 ft; 30 ft remaining'),
-    'Invalid/conflicting physical width reports the exact roll for reconciliation, not a false zero-stock shortage.');
-$missingWidth = $candidate(13, 3, 1, [30], [0]);
-$missingWidth['roll_width_issues'] = [['roll_id' => 1301, 'width_ft' => 'missing/invalid', 'item_name' => $missingWidth['name']]];
-$missingWidthResult = $resolve([$missingWidth], 2, 3, 100);
-$assert(!$missingWidthResult['ok'] && $missingWidthResult['reason'] === 'reconciliation'
-    && $missingWidthResult['shortage']['required_ft'] === 200.0
-    && $missingWidthResult['shortage']['recorded_open_ft'] === 30.0,
-    'Missing roll width fails closed while preserving independently calculated demand.');
+$configuredThreeWithLegacyWidth = $candidate(13, 3, 1, [30], [1]);
+$configuredThreeWithLegacyWidth['material_width'] = 36;
+$configuredThreeWithLegacyWidth['material_dimension_unit'] = 'in';
+$configuredWidthResult = $resolve([$configuredThreeWithLegacyWidth], 3, 6, 1);
+$assert($configuredWidthResult['ok']
+    && $configuredWidthResult['selection']['item_id'] === 13
+    && $configuredWidthResult['selection']['roll_width_ft'] === 3.0
+    && $configuredWidthResult['selection']['required_linear_ft'] === 6.0
+    && ($configuredWidthResult['selection']['roll_allocations_by_item'][13][0]['roll_id'] ?? 0) === 1301,
+    'Configured 3 ft width controls fit and allocation despite legacy inv_rolls.width_ft = 1.');
 
-$liveLikeCabuyao = [
-    $candidate(13, 3, 1, [53.6], [1]),
-    $candidate(14, 4, 1, [45.1], [1]),
-    $candidate(15, 5, 1, [50.1], [1]),
-    $candidate(16, 6, 1, [50.0], [1]),
-];
+$liveLikeCabuyao = [];
+foreach ([13 => 3, 14 => 4, 15 => 5, 16 => 6] as $itemId => $configuredWidth) {
+    $row = $candidate($itemId, $configuredWidth, 1, [250], [1]);
+    $row['material_width'] = $configuredWidth;
+    $row['material_dimension_unit'] = 'ft';
+    $liveLikeCabuyao[] = $row;
+}
 $liveLikeResult = $resolve($liveLikeCabuyao, 2, 2, 100);
-$assert(!$liveLikeResult['ok'] && $liveLikeResult['reason'] === 'reconciliation'
-    && $liveLikeResult['shortage']['required_ft'] === 200.0
-    && abs($liveLikeResult['shortage']['recorded_open_ft'] - 198.8) < 0.000001
-    && $liveLikeResult['shortage']['usable_matching_ft'] === 0.0
-    && str_contains($liveLikeResult['shortage']['message'], 'roll #1301')
-    && str_contains($liveLikeResult['shortage']['message'], 'roll #1401')
-    && str_contains($liveLikeResult['shortage']['message'], 'roll #1501')
-    && str_contains($liveLikeResult['shortage']['message'], 'roll #1601'),
-    'Live-like branch stock with 1 ft saved widths reports 198.8 ft recorded, zero usable footage, 200 ft demand, and every affected roll.');
-
+$allocatedFootage = 0.0;
+foreach ($liveLikeResult['selection']['roll_allocations_by_item'] as $allocations) $allocatedFootage += array_sum(array_column($allocations, 'length_ft'));
+$assert($liveLikeResult['ok'] && $liveLikeResult['selection']['required_linear_ft'] === 200.0
+    && abs($allocatedFootage - 200.0) < 0.001,
+    'Configured widths 3–6 ft allocate quantity demand across exact planned rolls despite legacy width metadata.');
 $branchOne = $candidate(13, 3, 1, [5]);
 $branchOne['open_rolls'][] = ['id' => 1399, 'branch_id' => 2, 'status' => 'OPEN', 'width_ft' => 3, 'remaining_length_ft' => 100];
 $branchTwo = $candidate(13, 3, 2, [100]);

@@ -74,20 +74,9 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
         $row['open_rolls'] = [];
         $row['roll_width_issues'] = [];
         foreach (printflow_pos_tarpaulin_open_rolls($itemId, $branchId) as $roll) {
-            $rawWidth = $roll['width_ft'] ?? null;
-            $physicalWidth = is_numeric($rawWidth) ? (float)$rawWidth : 0.0;
-            if (!is_finite($physicalWidth) || $physicalWidth <= 0 || abs($physicalWidth - $nominalWidth) > 0.01) {
-                $row['roll_width_issues'][] = [
-                    'roll_id' => (int)($roll['id'] ?? 0),
-                    'width_ft' => $physicalWidth > 0 ? $physicalWidth : 'missing/invalid',
-                    'expected_width_ft' => $nominalWidth,
-                    'total_length_ft' => max(0.0, (float)($roll['total_length_ft'] ?? 0)),
-                    'remaining_length_ft' => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)),
-                    'branch_id' => (int)($roll['branch_id'] ?? 0),
-                    'item_name' => (string)($row['name'] ?? 'Tarpaulin roll'),
-                ];
-                continue;
-            }
+            // Tarpaulin roll rows identify footage and branch only. Their width
+            // is taken from this active linked inventory item configuration.
+            $roll['allocation_width_ft'] = $nominalWidth;
             $row['open_rolls'][] = $roll;
         }
         $row['available_ft'] = array_sum(array_map(static fn(array $roll): float => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)), $row['open_rolls']));
