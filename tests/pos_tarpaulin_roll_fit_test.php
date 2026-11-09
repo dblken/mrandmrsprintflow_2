@@ -18,6 +18,11 @@ $candidate = static function (int $id, int $rollWidth, int $branch, array $lengt
 };
 $resolve = static fn(array $candidates, float $width, float $height, int $qty, array $usedDemand = [], array $usedRolls = [], bool $joinedCustom = false): array =>
     printflow_tarpaulin_resolve_width_fit($candidates, $width, $height, $qty, $usedDemand, $usedRolls, $joinedCustom);
+$customTarpaulinDimensions = printflow_tarpaulin_normalize_dimensions([
+    'dimensions' => 'Others', 'width' => '10', 'height' => '5', 'dimensions_unit' => 'ft',
+]);
+$assert($customTarpaulinDimensions === [10.0, 5.0],
+    'Server normalization preserves explicit 10×5 ft custom-size input independently of inventory roll widths.');
 $assert(printflow_tarpaulin_custom_size_selected(['dimensions' => 'Others', 'width' => '10', 'height' => '5'])
     && !printflow_tarpaulin_custom_size_selected(['dimensions' => '3 x 6 ft', 'width' => '3', 'height' => '6']),
     'The joined-width planner is enabled only by the explicit POS custom-size choice.');
@@ -105,6 +110,29 @@ $assert($tenByFive['ok'] && $tenByFive['selection']['required_linear_ft'] === 14
     && array_sum(array_column($fiveAllocations, 'length_ft')) === 140.0
     && array_reduce($fiveAllocations, static fn($ok, $row) => $ok && $row['roll_width_ft'] === 5.0, true),
     '10×5 at quantity 14 allocates two configured 5 ft rolls, 70 linear ft each, regardless of saved roll width 1.');
+
+$tenByFiveQtyTenCandidates = [$candidate(15, 5, 1, [50.1], [1]), $candidate(16, 6, 1, [50.0], [1])];
+$tenByFiveQtyTenCandidates[0]['material_width'] = 5;
+$tenByFiveQtyTenCandidates[0]['material_dimension_unit'] = 'ft';
+$tenByFiveQtyTenCandidates[1]['material_width'] = 6;
+$tenByFiveQtyTenCandidates[1]['material_dimension_unit'] = 'ft';
+$tenByFiveQtyTenCandidates[0]['open_rolls'][0]['id'] = 157;
+$tenByFiveQtyTenCandidates[1]['open_rolls'][0]['id'] = 156;
+$tenByFiveQtyTen = $resolve($tenByFiveQtyTenCandidates, 10, 5, 10, [], [], true);
+$qtyTenAllocations = [];
+foreach ($tenByFiveQtyTen['selection']['roll_allocations_by_item'] ?? [] as $itemId => $rows) {
+    foreach ($rows as $row) $qtyTenAllocations[(int)$itemId][] = $row;
+}
+$assert($tenByFiveQtyTen['ok'] && $tenByFiveQtyTen['selection']['version'] === PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION
+    && $tenByFiveQtyTen['selection']['width_ft'] === 10.0 && $tenByFiveQtyTen['selection']['height_ft'] === 5.0
+    && $tenByFiveQtyTen['selection']['finished_quantity'] === 10
+    && ($qtyTenAllocations[15][0]['roll_id'] ?? 0) === 157
+    && ($qtyTenAllocations[15][0]['length_ft'] ?? 0) === 50.0
+    && ($qtyTenAllocations[16][0]['roll_id'] ?? 0) === 156
+    && ($qtyTenAllocations[16][0]['length_ft'] ?? 0) === 50.0
+    && ($qtyTenAllocations[15][0]['roll_width_ft'] ?? 0) === 5.0
+    && ($qtyTenAllocations[16][0]['roll_width_ft'] ?? 0) === 6.0,
+    '10×5 at quantity 10 persists a current v2 plan with 50 ft from roll 157 (item 15) and 50 ft from roll 156 (item 16), despite legacy roll widths of 1 ft.');
 
 $threeAndFour = [$candidate(13, 3, 1, [70], [1]), $candidate(14, 4, 1, [70], [1])];
 $threeAndFour[0]['material_width'] = 3;
@@ -207,6 +235,8 @@ $cartHandler = (string)file_get_contents($root . '/staff/api/pos_cart_handler.ph
 $checkout = (string)file_get_contents($root . '/staff/api/pos_checkout.php');
 $pos = (string)file_get_contents($root . '/staff/pos.php');
 $jobService = (string)file_get_contents($root . '/includes/JobOrderService.php');
+$staffCustomizations = (string)file_get_contents($root . '/staff/customizations.php');
+$jobApi = (string)file_get_contents($root . '/admin/job_orders_api.php');
 $rollService = (string)file_get_contents($root . '/includes/RollService.php');
 $assert(str_contains($validation, 'printflow_tarpaulin_resolve_width_fit(')
     && str_contains($validation, 'printflow_tarpaulin_custom_size_selected($customization)')
@@ -235,5 +265,36 @@ $assert(str_contains($jobService, 'printflow_tarpaulin_saved_roll_fit_selection_
     && str_contains($rollService, 'id IN ({$placeholders})')
     && str_contains($rollService, 'No other roll was used'),
     'Completion locks and deducts each mixed-width material from only its own saved roll IDs and per-item footage.');
+$assert(str_contains($jobService, 'printflow_tarpaulin_normalize_dimensions($custom)')
+    && str_contains($jobService, "if (\$selectionServiceId === 40)")
+    && str_contains($jobService, 'The saved Tarpaulin allocation no longer matches the job dimensions, quantity, or branch')
+    && str_contains($jobService, 'A Tarpaulin material from the saved multi-roll allocation is missing in Production Assignment'),
+    'Job creation keeps the explicit customer dimensions and completion requires the complete saved multi-roll plan for that branch/order.');
+$assert(str_contains($staffCustomizations, "selection.version !== 'roll_fit_v2'")
+    && str_contains($staffCustomizations, 'roll_allocations_by_item')
+    && str_contains($staffCustomizations, 'this.tarpaulinSelectionMatchesSavedPlan(selectedAssignmentIds)')
+    && str_contains($staffCustomizations, 'width = parsePositive(materialService.primaryCustom?.width ?? materialService.primaryCustom?.width_ft)'),
+    'Production Assignment uses all item allocations from the persisted plan and keeps customer dimensions separate.');
+$assert(str_contains($jobApi, 'Tarpaulin assignment quantity must match this material’s saved roll allocation')
+    && str_contains($jobApi, 'groupIsExactSavedPlanSubset'),
+    'Server assignment accepts only material IDs and quantities contained in the server-authored multi-roll plan.');
+
+$paired = printflow_tarpaulin_pair_cart_lines(
+    [['id' => 40, 'is_service' => true, 'qty' => 10, 'pos_cart_line_id' => 'qa-line-1', 'customization' => [
+        'service_id' => 40, 'dimensions' => 'Others', 'width' => 10, 'height' => 5,
+    ]]],
+    [['product_id' => 40, 'is_service' => true, 'qty' => 10, 'pos_cart_line_id' => 'qa-line-1', 'customization' => [
+        'service_id' => 40, 'dimensions' => 'Others', 'width' => 10, 'height' => 5,
+        'pos_tarpaulin_selection' => $tenByFiveQtyTen['selection'],
+    ]]],
+    1
+);
+$assert($paired['ok']
+    && $paired['items'][0]['customization']['width'] === 10
+    && $paired['items'][0]['customization']['height'] === 5
+    && $paired['items'][0]['customization']['pos_tarpaulin_selection']['version'] === PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION
+    && $paired['items'][0]['customization']['pos_tarpaulin_selection']['roll_allocations_by_item'][15][0]['roll_id'] === 157
+    && $paired['items'][0]['customization']['pos_tarpaulin_selection']['roll_allocations_by_item'][16][0]['roll_id'] === 156,
+    'Checkout handoff preserves 10×5 customer dimensions and exact 5 ft/6 ft roll allocation IDs.');
 
 echo "POS Tarpaulin width-fit allocation tests passed.\n";

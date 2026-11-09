@@ -1071,7 +1071,9 @@ function printflow_tarpaulin_resolve_roll_fit(array $candidates, $width, $height
     usort($fits, $compareLayouts);
     $winner = $fits[0];
     $selection = [
-        'version' => PRINTFLOW_TARPAULIN_ROLL_FIT_LEGACY_VERSION, 'branch_id' => (int)($candidates[0]['branch_id'] ?? 0),
+        // This exact-roll allocation is the current persisted format consumed
+        // by checkout, Production Assignment, and completion deduction.
+        'version' => PRINTFLOW_TARPAULIN_ROLL_FIT_VERSION, 'branch_id' => (int)($candidates[0]['branch_id'] ?? 0),
         'width_ft' => $w, 'height_ft' => $h, 'finished_quantity' => $q,
         'orientation' => $winner['orientation'], 'panel_count_per_piece' => $winner['panel_count'],
         'required_linear_ft' => (float)$winner['required_linear_ft'], 'required_by_item' => $winner['required_by_item'],

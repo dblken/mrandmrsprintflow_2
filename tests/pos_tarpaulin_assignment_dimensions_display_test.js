@@ -142,6 +142,21 @@ assert.strictEqual(displayed.Dimensions, '2 × 2 ft', 'customer dimensions remai
 assert.ok(!Object.keys(displayed).some((key) => /tarpaulin selection/i.test(key)),
     'Pos Tarpaulin Selection label is not emitted by dimension enrich');
 
+const wideCustomDisplayed = helpers.staffEnrichDimensionSpecs({
+    width: '10', height: '5', dimensions: 'Others', dimensions_unit: 'ft',
+    pos_tarpaulin_selection: {
+        version: 'roll_fit_v2', width_ft: 10, height_ft: 5, finished_quantity: 10,
+        roll_allocations_by_item: {
+            15: [{ roll_id: 157, roll_width_ft: 5, length_ft: 50 }],
+            16: [{ roll_id: 156, roll_width_ft: 6, length_ft: 50 }]
+        }
+    }
+}, { service_id: 40 });
+assert.strictEqual(wideCustomDisplayed.Dimensions, '10 × 5 ft',
+    'Customer-facing Custom Orders details retain 10×5 ft rather than displaying a configured roll width or stale job width');
+assert.ok(!Object.keys(wideCustomDisplayed).some((key) => /tarpaulin selection/i.test(key)),
+    'The multi-roll allocation remains internal and is not presented as a customer specification');
+
 // PHP normalizer contract
 const php = spawnSync('php', ['-r', `
 require '${path.join(root, 'includes/customization_normalizer.php').replace(/\\/g, '/')}';

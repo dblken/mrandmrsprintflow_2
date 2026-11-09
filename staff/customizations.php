@@ -3206,6 +3206,7 @@ $online_closed_count = 0;
                                                 <div style="display:flex; align-items:center; justify-content:space-between; background:#f1f5f9; border-radius:8px; padding:8px 12px; font-size:12px; border:1px solid #e2e8f0; gap:10px;">
                                                     <div style="min-width:0;">
                                                         <div style="font-weight:600; color:#1e293b;" x-text="pm.name + (pm.size_variant ? ' · ' + pm.size_variant : '')"></div>
+                                                        <div x-show="isPendingTarpaulinMaterial(pm) && tarpaulinAllocationSummary(pm)" x-text="tarpaulinAllocationSummary(pm)" style="margin-top:3px;color:#475569;font-size:11px;"></div>
                                                         <div x-show="isPendingTarpaulinMaterial(pm)" class="pos-tarp-assignment-dims" style="display:flex; flex-direction:row; align-items:flex-end; gap:8px; margin-top:6px; width:100%;">
                                                             <label style="flex:1 1 0; min-width:0; display:flex; flex-direction:column; gap:3px; color:#334155; font-size:11px; font-weight:700;">Width (ft)
                                                                 <input type="number" min="0.01" step="any" inputmode="decimal"
@@ -4804,6 +4805,35 @@ window.pfServiceFieldCatalog = (() => {
                     details = this.currentJo.customization_details;
                 }
                 return details.pos_tarpaulin_selection || null;
+            },
+            tarpaulinAllocationSummary(material) {
+                const allocations = Array.isArray(material?.metadata?.tarpaulin_roll_allocations)
+                    ? material.metadata.tarpaulin_roll_allocations : [];
+                return allocations.map(row => {
+                    const roll = Number(row.roll_id || 0);
+                    const code = String(row.roll_code || '').trim();
+                    const label = code || (roll > 0 ? `Roll #${roll}` : 'Roll');
+                    const footage = Number(row.length_ft || 0);
+                    const width = Number(row.roll_width_ft || 0);
+                    return `${label}: ${footage} ft${width > 0 ? ` @ ${width} ft width` : ''}`;
+                }).join(' · ');
+            },
+            tarpaulinSavedPlanItemIds(selection = this.persistedPosTarpaulinSelection()) {
+                if (!selection || selection.version !== 'roll_fit_v2'
+                    || !selection.roll_allocations_by_item || typeof selection.roll_allocations_by_item !== 'object') return [];
+                return Object.keys(selection.roll_allocations_by_item)
+                    .map(Number).filter(id => Number.isInteger(id) && id > 0).sort((a, b) => a - b);
+            },
+            tarpaulinSelectionMatchesSavedPlan(itemIds) {
+                if (Number((this.materialCompatibilityContext || {}).serviceId || 0) !== 40) return false;
+                const selection = this.persistedPosTarpaulinSelection();
+                const expected = this.tarpaulinSavedPlanItemIds(selection);
+                // Non-roll auxiliary materials are outside the Tarpaulin roll
+                // alternative group; compare only the verified roll item IDs.
+                const actual = [...new Set((itemIds || []).map(Number)
+                    .filter(id => Number.isInteger(id) && id >= 13 && id <= 16))].sort((a, b) => a - b);
+                return expected.length > 0 && expected.length === actual.length
+                    && expected.every((id, index) => id === actual[index]);
             },
             isPcsMaterial(itemId) {
                 const item = this.getInventoryItem(itemId);
@@ -6869,13 +6899,18 @@ window.pfServiceFieldCatalog = (() => {
                     const parsed = parseFloat(value);
                     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
                 };
-                let width = parsePositive(order.width_ft);
-                let height = parsePositive(order.height_ft);
-                if (parts) {
+                const isTarpaulin = Number(this.staffResolveItemServiceId(primaryItem || order)) === 40;
+                let width = isTarpaulin ? 0 : parsePositive(order.width_ft);
+                let height = isTarpaulin ? 0 : parsePositive(order.height_ft);
+                if (isTarpaulin) {
+                    width = parsePositive(materialService.primaryCustom?.width ?? materialService.primaryCustom?.width_ft);
+                    height = parsePositive(materialService.primaryCustom?.height ?? materialService.primaryCustom?.height_ft);
+                }
+                if (parts && !(width > 0 && height > 0)) {
                     const parsedWidth = parsePositive(parts.width);
                     const parsedHeight = parsePositive(parts.height);
-                    if (parsedWidth > 0) width = parsedWidth;
-                    if (parsedHeight > 0) height = parsedHeight;
+                    if (!(width > 0) && parsedWidth > 0) width = parsedWidth;
+                    if (!(height > 0) && parsedHeight > 0) height = parsedHeight;
                 }
                 if (width <= 0) {
                     width = parsePositive(materialService.primaryCustom?.width || materialService.primaryCustom?.width_ft);
@@ -6956,8 +6991,11 @@ window.pfServiceFieldCatalog = (() => {
                     const widthNum = parseFloat(parts.width);
                     const heightNum = parseFloat(parts.height);
                     if (Number.isFinite(widthNum) && Number.isFinite(heightNum) && (widthNum > 0 || heightNum > 0)) {
-                        const wText = String(widthNum).replace(/\.?0+$/, '');
-                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        // Number#toString already trims fractional zeros. A
+                        // trailing-zero regex here corrupts whole dimensions
+                        // such as 10 ft into 1 ft.
+                        const wText = String(widthNum);
+                        const hText = String(heightNum);
                         return wText + ' × ' + hText + ' ft';
                     }
                 }
@@ -7022,8 +7060,8 @@ window.pfServiceFieldCatalog = (() => {
                         delete out.pos_material_dimension_unit;
                     };
                     if (hasCustomerDims) {
-                        const wText = String(widthNum).replace(/\.?0+$/, '');
-                        const hText = String(heightNum).replace(/\.?0+$/, '');
+                        const wText = String(widthNum);
+                        const hText = String(heightNum);
                         out.Width = wText + ' ' + unitShort;
                         out.Height = hText + ' ' + unitShort;
                         out.Dimensions = wText + ' × ' + hText + ' ' + unitShort;
@@ -8741,6 +8779,7 @@ window.pfServiceFieldCatalog = (() => {
                 let usageReason = '';
                 let quantityConfirmed = false;
                 let calc = null;
+                let plannedRollAllocations = [];
                 if (isTarpaulin && window.PrintFlowProductionMaterials) {
                     const persisted = this.persistedPosTarpaulinSelection();
                     if (persisted) {
@@ -8751,7 +8790,28 @@ window.pfServiceFieldCatalog = (() => {
                             customerHeightFt = Number(persisted.height_ft);
                         }
                     }
-                    if (persisted && Number(persisted.item_id) === Number(item.id)
+                    const plannedByItem = persisted && persisted.roll_allocations_by_item
+                        ? (persisted.roll_allocations_by_item[itemId] || persisted.roll_allocations_by_item[Number(itemId)] || [])
+                        : [];
+                    if (persisted && persisted.version === 'roll_fit_v2'
+                        && Number(persisted.branch_id || 0) === Number(this.currentJo?.branch_id || 0)
+                        && plannedByItem.length > 0
+                        && Math.abs(Number(persisted.width_ft || 0) - Number(customerWidthFt || 0)) < 0.000001
+                        && Math.abs(Number(persisted.height_ft || 0) - Number(customerHeightFt || 0)) < 0.000001) {
+                        plannedRollAllocations = plannedByItem.filter(row => row && Number(row.roll_id) > 0 && Number(row.length_ft) > 0);
+                        const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+                        if (plannedFootage > 0) {
+                            calc = {
+                                required_linear_ft: plannedFootage,
+                                roll_width_ft: Number(persisted.material_items?.[itemId]?.roll_width_ft || plannedRollAllocations[0]?.roll_width_ft || 0),
+                                orientation: persisted.orientation || '',
+                            };
+                        }
+                    } else if (persisted && persisted.version === 'roll_fit_v2') {
+                        // A saved multi-roll allocation is authoritative. Never
+                        // replace a missing/mismatched plan with one guessed roll.
+                        calc = null;
+                    } else if (persisted && Number(persisted.item_id) === Number(item.id)
                         && Number.isFinite(Number(persisted.required_linear_ft))
                         && Number(persisted.required_linear_ft) > 0
                         && (!(customerWidthFt > 0) || Math.abs(Number(persisted.width_ft || 0) - Number(customerWidthFt)) < 0.000001)
@@ -8794,6 +8854,12 @@ window.pfServiceFieldCatalog = (() => {
                         inventory_uom: isTarpaulin ? entryUom : null,
                         customer_width_ft: isTarpaulin ? customerWidthFt : null,
                         customer_height_ft: isTarpaulin ? customerHeightFt : null,
+                        tarpaulin_roll_allocations: plannedRollAllocations.map(row => ({
+                            roll_id: Number(row.roll_id),
+                            roll_code: String(row.roll_code || ''),
+                            roll_width_ft: Number(row.roll_width_ft || calc?.roll_width_ft || 0),
+                            length_ft: Number(row.length_ft),
+                        })),
                         material_usage: {
                             estimate: estimatedQty,
                             actual: qty === '' ? null : qty,
@@ -8835,6 +8901,17 @@ window.pfServiceFieldCatalog = (() => {
                 };
                 let candidate = null;
                 const persisted = this.persistedPosTarpaulinSelection();
+                const plannedItemIds = this.tarpaulinSavedPlanItemIds(persisted);
+                if (plannedItemIds.length > 0) {
+                    const plannedItems = plannedItemIds.map(itemId => (this.allInventoryItems || [])
+                        .find(item => Number(item.id) === itemId) || null);
+                    if (plannedItems.some(item => !isEligibleTarpaulinRoll(item))) {
+                        this.productionErrors.material = 'A material in the saved Tarpaulin allocation is not available for this order. Refresh the order before continuing.';
+                        return;
+                    }
+                    plannedItems.forEach(item => this.queueMaterialFromPicker(item, { autoSelected: true }));
+                    return;
+                }
                 if (persisted && Number(persisted.item_id) > 0) {
                     candidate = (this.allInventoryItems || []).find((item) => Number(item.id) === Number(persisted.item_id)) || null;
                     if (!isEligibleTarpaulinRoll(candidate)) candidate = null;
@@ -10768,7 +10845,14 @@ window.pfServiceFieldCatalog = (() => {
                 const selectedAssignmentIds = [...savedMaterials, ...this.pendingMaterials, ...extraMaterials]
                     .map(material => Number(material && (material.item_id || material.id)))
                     .filter(itemId => Number.isInteger(itemId) && itemId > 0);
-                if (window.PrintFlowProductionMaterials && typeof window.PrintFlowProductionMaterials.validateAssignmentGroups === 'function') {
+                if (Number(assignmentContext.serviceId || 0) === 40) {
+                    const expectedTarpaulinIds = this.tarpaulinSavedPlanItemIds();
+                    if (expectedTarpaulinIds.length > 0 && !this.tarpaulinSelectionMatchesSavedPlan(selectedAssignmentIds)) {
+                        errors.material = errors.material || 'Select every Tarpaulin roll in the validated allocation plan before saving the price.';
+                    }
+                }
+                if (window.PrintFlowProductionMaterials && typeof window.PrintFlowProductionMaterials.validateAssignmentGroups === 'function'
+                    && !this.tarpaulinSelectionMatchesSavedPlan(selectedAssignmentIds)) {
                     const selectionError = window.PrintFlowProductionMaterials.validateAssignmentGroups(
                         Number(assignmentContext.serviceId || 0),
                         selectedAssignmentIds,

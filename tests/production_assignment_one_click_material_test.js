@@ -22,6 +22,33 @@ const methods = new Function(`return ({${page.slice(selectStart, end).replace(/\
 const validationStart = page.indexOf('            validateProductionAssignments(extraMaterials = [], extraInks = []) {');
 const validationEnd = page.indexOf('            setProductionValidationFeedback() {', validationStart);
 const validationMethods = new Function(`return ({${page.slice(validationStart, validationEnd).replace(/\r\n/g, '\n')}\n});`)();
+const resolveDimensionsStart = page.indexOf('            resolveOrderDimensions(jo) {');
+const resolveDimensionsEnd = page.indexOf('            staffExtractDimensionParts(specs, dimensionField) {', resolveDimensionsStart);
+assert.ok(resolveDimensionsStart >= 0 && resolveDimensionsEnd > resolveDimensionsStart, 'Order dimension resolver is present');
+const resolveDimensionsMethod = new Function(`return ({${page.slice(resolveDimensionsStart, resolveDimensionsEnd).replace(/\r\n/g, '\n')}\n});`)();
+const planHelpersStart = page.indexOf('            tarpaulinSavedPlanItemIds(');
+const planHelpersEnd = page.indexOf('            isPcsMaterial(itemId) {', planHelpersStart);
+assert.ok(planHelpersStart >= 0 && planHelpersEnd > planHelpersStart, 'Saved Tarpaulin allocation plan helpers are present');
+const planHelpers = new Function(`return ({${page.slice(planHelpersStart, planHelpersEnd).replace(/\r\n/g, '\n')}\n});`)();
+
+const dimensionContext = {
+  currentJo: {
+    width_ft: 1, height_ft: 5,
+    items: [{ service_id: 40, customization: { service_id: 40, dimensions: 'Others', width: '10', height: '5', dimensions_unit: 'ft' } }]
+  },
+  resolveMaterialServiceContext(order) {
+    const item = order.items[0];
+    return { primaryItem: item, primaryCustom: item.customization };
+  },
+  resolvePrimaryOrderItem(order) { return order.items[0]; },
+  staffResolveItemServiceId(item) { return Number(item && item.service_id || 0); },
+  staffGetServiceSpecProfile() { return { dimensionField: { key: 'dimensions', unit: 'ft' } }; },
+  staffExtractDimensionParts() { return null; }
+};
+Object.assign(dimensionContext, resolveDimensionsMethod);
+assert.deepEqual(dimensionContext.resolveOrderDimensions(dimensionContext.currentJo),
+  { width: 10, height: 5, hasDimensions: true, unit: 'ft' },
+  'Production Assignment dimension resolver prefers the saved custom 10×5 customer dimensions over an incorrect 1 ft job placeholder');
 
 const stockStart = page.indexOf('            pendingMaterialStockError(material) {');
 const stockEnd = page.indexOf('            /** @deprecated Kept for older callers', stockStart);
@@ -213,6 +240,7 @@ const tarpCtx = {
   materialRules: []
 };
 Object.assign(tarpCtx, methods);
+Object.assign(tarpCtx, planHelpers);
 globalThis.window.PrintFlowProductionMaterials = {
   getAutoSelectCandidate() { return tarpItem; },
   tarpaulinRollWidthFor() { return 3; },
@@ -242,5 +270,74 @@ assert.equal(
 const api = fs.readFileSync(path.join(__dirname, '..', 'admin', 'job_orders_api.php'), 'utf8');
 assert.match(api, /getStockOnHandForUpdate/, 'Server rechecks stock before material assignment persistence');
 assert.match(api, /Insufficient %s stock for this branch/, 'Server insufficient-stock message names material and quantities');
+
+// A custom POS plan can include two item IDs. Production Assignment must queue
+// both exact planned materials and preserve each physical roll allocation.
+const customPlan = {
+  version: 'roll_fit_v2', branch_id: 1, width_ft: 10, height_ft: 5, finished_quantity: 10,
+  orientation: 'original', required_linear_ft: 100,
+  material_items: { 15: { name: '5ft Tarpaulin', roll_width_ft: 5 }, 16: { name: '6ft Tarpaulin', roll_width_ft: 6 } },
+  roll_allocations_by_item: {
+    15: [{ roll_id: 157, roll_code: 'ROLL-157', roll_width_ft: 5, length_ft: 50 }],
+    16: [{ roll_id: 156, roll_code: 'ROLL-156', roll_width_ft: 6, length_ft: 50 }]
+  }
+};
+const tarp5 = { id: 15, name: '5ft Tarpaulin', track_by_roll: 1, unit_of_measure: 'ft', compatibility: { selectable: true, directSelectable: true, inStock: true } };
+const tarp6 = { id: 16, name: '6ft Tarpaulin', track_by_roll: 1, unit_of_measure: 'ft', compatibility: { selectable: true, directSelectable: true, inStock: true } };
+const planCtx = {
+  ...tarpCtx,
+  pendingMaterials: [],
+  currentJo: {
+    branch_id: 1, width_ft: 1, height_ft: 5, quantity: 10, materials: [],
+    items: [{ service_id: 40, order_item_id: 30368, customization: { service_id: 40, dimensions: 'Others', width: 10, height: 5, dimensions_unit: 'ft', pos_tarpaulin_selection: customPlan } }]
+  },
+  allInventoryItems: [tarp5, tarp6],
+  resolveOrderDimensions() { return { width: 10, height: 5 }; },
+  getInventoryItem(id) { return [tarp5, tarp6].find(item => Number(item.id) === Number(id)) || null; },
+  persistedPosTarpaulinSelection() { return customPlan; },
+  tarpaulinSavedPlanItemIds: planHelpers.tarpaulinSavedPlanItemIds,
+  tarpaulinSelectionMatchesSavedPlan: planHelpers.tarpaulinSelectionMatchesSavedPlan,
+  materialClassification() { return { selectable: true, directSelectable: true, inStock: true }; }
+};
+Object.assign(planCtx, methods);
+globalThis.window.PrintFlowProductionMaterials.validateAssignmentGroups = () => 'Should not enforce one-roll alternative against a saved multi-roll allocation';
+planCtx.maybeAutoSelectTarpaulinRoll();
+assert.deepEqual(planCtx.pendingMaterials.map(row => Number(row.item_id)).sort((a, b) => a - b), [15, 16],
+  'Production Assignment queues every planned Tarpaulin inventory item rather than auto-selecting one roll');
+assert.deepEqual(planCtx.pendingMaterials.map(row => Number(row.qty)), [50, 50],
+  'Each material receives its exact 50 ft share of the 10×5 ft quantity-10 allocation');
+assert.deepEqual(planCtx.pendingMaterials.map(row => row.metadata.tarpaulin_roll_allocations[0].roll_id), [157, 156],
+  'Assignment display metadata retains exact planned roll IDs');
+assert.equal(planCtx.pendingMaterials[0].customer_width_ft, 10, 'Requested width stays 10 ft, separate from the 5 ft roll width');
+assert.equal(planCtx.pendingMaterials[1].customer_width_ft, 10, 'Requested width stays 10 ft for the second roll material too');
+const planSaveCtx = {
+  ...planCtx,
+  currentJo: { ...planCtx.currentJo, ink_usage: [] },
+  requiresInk: false,
+  productionErrors: {},
+  posMaterialQuantityError() { return ''; },
+  isPendingTarpaulinMaterial() { return true; },
+  pendingMaterialStockError() { return ''; },
+  tarpaulinSelectionMatchesSavedPlan: planHelpers.tarpaulinSelectionMatchesSavedPlan,
+  tarpaulinSavedPlanItemIds: planHelpers.tarpaulinSavedPlanItemIds
+};
+assert.equal(validationMethods.validateProductionAssignments.call(planSaveCtx, [], []), true,
+  'The exact saved multi-roll plan passes Assignment validation without the single-alternative rejection');
+const partialPlanCtx = {
+  ...planSaveCtx,
+  pendingMaterials: [planCtx.pendingMaterials[0]],
+  productionErrors: {}
+};
+assert.equal(validationMethods.validateProductionAssignments.call(partialPlanCtx, [], []), false,
+  'A partial assignment cannot save Set Price when the validated plan requires both roll materials');
+assert.match(partialPlanCtx.productionErrors.material, /every Tarpaulin roll in the validated allocation plan/,
+  'The omitted planned roll receives a clear assignment validation message');
+
+assert.match(api, /Production Assignment must include every roll material in the validated Tarpaulin allocation plan/,
+  'Server Set Price validation also requires the complete persisted multi-roll assignment');
+assert.match(api, /Tarpaulin assignment quantity must match this material’s saved roll allocation/,
+  'Server assignment quantity is bound to each per-item planned footage');
+assert.match(page, /roll_fit_v2[\s\S]*roll_allocations_by_item[\s\S]*tarpaulinSelectionMatchesSavedPlan/,
+  'Frontend reads the current saved allocation format and validates the planned item set');
 
 console.log('production_assignment_one_click_material_test: PASS');
