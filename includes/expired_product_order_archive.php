@@ -13,6 +13,7 @@ require_once __DIR__ . '/provider_payments.php';
 require_once __DIR__ . '/staff_order_status_buckets.php';
 require_once __DIR__ . '/staff_access.php';
 require_once __DIR__ . '/ready_made_product_order_scope.php';
+require_once __DIR__ . '/ready_made_product_operational_visibility.php';
 
 /** Physical deletion is opt-in; operational views hide stale ready-made rows instead. */
 function printflow_expired_product_order_physical_cleanup_enabled(): bool
@@ -239,7 +240,7 @@ function printflow_expired_product_order_unpaid_expired_sql(string $oAlias = 'o'
 /** Awaiting Payment ages from the DATETIME order_date set with NOW() at online order creation. */
 function printflow_expired_product_order_awaiting_age_sql(string $oAlias = 'o'): string
 {
-    return "{$oAlias}.order_date <= DATE_SUB(NOW(), INTERVAL 24 HOUR)";
+    return printflow_ready_made_product_operational_age_due_sql($oAlias);
 }
 
 /**
@@ -386,20 +387,13 @@ function printflow_ready_made_product_unpaid_overdue_operational_hidden_sql(stri
 /** Prevent stale ready-made orders from operational lists when cleanup is disabled or delayed. */
 function printflow_expired_product_order_overdue_for_display_sql(string $oAlias = 'o'): string
 {
-    $cancelled = printflow_ready_made_product_cancelled_operational_hidden_sql($oAlias);
-    $expired = printflow_ready_made_product_expired_operational_hidden_sql($oAlias);
-    $unpaidOverdue = printflow_ready_made_product_unpaid_overdue_operational_hidden_sql($oAlias);
-    if ($unpaidOverdue === '0=1') {
-        return "({$cancelled} OR {$expired})";
-    }
-
-    return "({$cancelled} OR {$expired} OR {$unpaidOverdue})";
+    return printflow_ready_made_product_operational_hidden_sql($oAlias);
 }
 
 /** Hide overdue unpaid orders from active lists even when deletion is guarded. */
 function printflow_expired_product_order_exclude_archived_sql(string $oAlias = 'o'): string
 {
-    return 'NOT (' . printflow_expired_product_order_overdue_for_display_sql($oAlias) . ')';
+    return printflow_ready_made_product_operational_visible_sql($oAlias);
 }
 
 /** Expired unpaid orders remain visible only during their first 24 hours expired. */

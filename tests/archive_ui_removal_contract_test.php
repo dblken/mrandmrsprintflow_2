@@ -25,7 +25,11 @@ $expect(!str_contains($orders, 'btn-open-archived-orders'), 'Staff Product Order
 $expect(!str_contains($orders, 'Archived Expired Orders'), 'Staff Product Orders has no archived modal title');
 $expect(!str_contains($orders, 'openArchivedOrdersModal'), 'Staff Product Orders has no archived modal opener');
 $expect(str_contains($orders, 'printflow_expired_product_order_cleanup'), 'Staff page still runs 24-hour cleanup fallback');
-$expect(substr_count($orders, 'printflow_expired_product_order_exclude_archived_sql') >= 2, 'Staff list/KPI still hide overdue unpaid product orders');
+$expect(
+    substr_count($orders, 'printflow_ready_made_product_operational_visible_sql') >= 2
+    || substr_count($orders, 'printflow_expired_product_order_exclude_archived_sql') >= 2,
+    'Staff list/KPI still hide overdue unpaid product orders'
+);
 
 $expect(!str_contains($products, 'openArchiveModal') && !str_contains($products, 'archive-storage-overlay'), 'Products Management has no Archived Items modal controls');
 $expect(!str_contains($products, 'Clear Archived Expired Orders') && !str_contains($products, 'btn-clear-archived-expired-orders'), 'Products Management has no Clear Archived Expired Orders button');

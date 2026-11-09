@@ -27,9 +27,11 @@ $assert = static function (bool $condition, string $message): void {
 };
 
 $assert(strpos($helpers, 'INTERVAL 7 DAY') === false, 'old 7-day retention is removed');
-$assert(substr_count($helpers, 'INTERVAL 24 HOUR') >= 2, 'awaiting and expired states use a 24-hour database-clock threshold');
-$assert(strpos($helpers, '<= DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'orders at or beyond the 24-hour boundary are eligible');
-$assert(strpos($helpers, 'order_date <= DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'awaiting retention uses order DATETIME, not displayed date');
+$visibility = file_get_contents($root . '/includes/ready_made_product_operational_visibility.php');
+$thresholdSources = (is_string($helpers) ? $helpers : '') . (is_string($visibility) ? $visibility : '');
+$assert(substr_count($thresholdSources, 'INTERVAL 24 HOUR') >= 2, 'awaiting and expired states use a 24-hour database-clock threshold');
+$assert(strpos($thresholdSources, '<= DATE_SUB(NOW(), INTERVAL 24 HOUR)') !== false, 'orders at or beyond the 24-hour boundary are eligible');
+$assert(strpos($visibility, 'order_date') !== false, 'operational age uses order creation order_date');
 $assert(strpos($helpers, 'provider_payment_status_history') !== false, 'expired retention prefers the actual expired transition time');
 $assert(strpos($helpers, "= 'awaiting_payment'") !== false, 'provider Awaiting Payment orders are eligible by the displayed provider state');
 $assert(strpos($helpers, "= 'expired'") !== false, 'provider Expired orders are eligible by the displayed provider state');
@@ -60,13 +62,19 @@ $assert(strpos($displayFunction, 'payment_submissions') === false
     && strpos($displayFunction, 'job_orders') === false
     && strpos($displayFunction, 'inventory_transactions') === false,
     'unresolved child records cannot keep an overdue unpaid order in active lists');
-$assert(strpos($helpers, "return 'NOT (' . printflow_expired_product_order_overdue_for_display_sql(") !== false, 'shared list exclusion uses the dedicated overdue display predicate');
+$assert(is_string($visibility), 'operational visibility module is readable');
+$assert(strpos($helpers, 'printflow_ready_made_product_operational_visible_sql') !== false, 'exclude_archived delegates to the shared operational visible predicate');
+$assert(strpos($visibility, 'function printflow_ready_made_product_operational_hidden_sql') !== false, 'shared list exclusion uses the canonical operational hidden predicate');
 $assert(strpos($helpers, 'ORDER BY id ASC FOR UPDATE') !== false, 'payment ledger rows lock before order recheck');
 $assert(strpos($helpers, 'LIMIT 1 FOR UPDATE') !== false, 'order eligibility is rechecked under a row lock before deletion');
 $assert(strpos($cron, 'printflow_expired_product_order_cleanup(null, 500)') !== false, 'scheduled task runs the shared cleanup across branches');
 $assert(strpos($cron, "PHP_SAPI !== 'cli'") !== false && strpos($cron, 'GET_LOCK') !== false, 'cron is CLI-only and serializes overlapping scheduled runs');
 $assert(strpos($orders, 'printflow_expired_product_order_cleanup($staffBranchId, 100)') !== false, 'staff page runs branch fallback before list and counts');
-$assert(substr_count($orders, 'printflow_expired_product_order_exclude_archived_sql') >= 2, 'main list and KPI queries exclude due rows if cleanup is delayed');
+$assert(
+    substr_count($orders, 'printflow_ready_made_product_operational_visible_sql') >= 2
+    || substr_count($orders, 'printflow_expired_product_order_exclude_archived_sql') >= 2,
+    'main list and KPI queries exclude due rows if cleanup is delayed'
+);
 $assert(strpos($orderDataApi, 'printflow_expired_product_order_exclude_archived_sql') !== false, 'legacy order list/details API applies shared operational exclusion');
 $assert(strpos($orderDetails, 'printflow_expired_product_order_exclude_archived_sql') !== false, 'direct order details route applies shared operational exclusion');
 $assert(substr_count($adminOrders, 'printflow_expired_product_order_exclude_archived_sql') >= 3, 'admin product orders list, count, and KPIs apply operational exclusion');
@@ -75,7 +83,8 @@ $assert(is_string($retentionDocNormalized) && stripos($retentionDocNormalized, '
 $assert(strpos($orders, 'fp_display_status') !== false, 'filter panel still supports payment display filtering');
 $assert(strpos($orders, "'PAID', 'EXPIRED', 'COMPLETED'") === false, 'Paid and Expired are removed from Product Orders display-status filter allowlist');
 $assert(strpos($orders, "'COMPLETED'") !== false && strpos($orders, "'EXPIRED' => 'Expired'") === false, 'only Completed remains in the payment-status filter UI');
-$assert(strpos($helpers, 'latestProviderAbsent') === false, 'stale Pending must hide even when a non-awaiting provider row exists');
+$assert(strpos($visibility, 'pending review') !== false, 'stale legacy Pending labels hide without requiring a blank provider row');
+$assert(strpos($visibility, 'return \'0=1\'') === false, 'operational hide does not fail closed on provider schema guards');
 $assert(strpos($helpers, 'printflow_ready_made_product_expired_operational_hidden_sql') !== false, 'expired ready-made rows are hidden operationally');
 $assert(strpos($orders, 'btn-open-archived-orders') === false && strpos($orders, 'openArchivedOrdersModal') === false, 'staff Product Orders Archived UI is removed');
 $assert(strpos($orders, 'archivedOrdersModal') === false, 'staff archived orders modal markup is removed');

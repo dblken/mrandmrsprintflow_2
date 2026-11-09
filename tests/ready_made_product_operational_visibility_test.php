@@ -28,7 +28,9 @@ $assert($helpers !== false && $scopeFile !== false, 'visibility sources are read
 $assert(strpos($helpers, 'printflow_ready_made_product_cancelled_operational_hidden_sql') !== false, 'cancelled ready-made orders are hidden operationally');
 $assert(strpos($helpers, "'pending'") !== false, 'legacy Pending is in the awaiting unpaid bucket');
 $assert(strpos($helpers, 'printflow_ready_made_product_order_scope_sql') !== false, 'overdue logic is scoped to ready-made product orders');
-$assert(strpos($helpers, "return 'NOT (' . printflow_expired_product_order_overdue_for_display_sql(") !== false, 'operational lists negate the hide predicate');
+$operational = file_get_contents($root . '/includes/ready_made_product_operational_visibility.php');
+$assert(is_string($operational), 'operational visibility module is readable');
+$assert(strpos($operational, 'function printflow_ready_made_product_operational_visible_sql') !== false, 'operational lists use NOT hidden via shared visible predicate');
 
 $dbNow = new DateTimeImmutable('2026-11-02 12:00:00', new DateTimeZone('Asia/Manila'));
 $boundary = $dbNow->modify('-24 hours');

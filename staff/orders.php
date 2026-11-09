@@ -352,7 +352,7 @@ $sql_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
 $params = [];
 $types = '';
 if (!$is_pos_staff) {
-    $sql_conditions .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
+    $sql_conditions .= ' AND ' . printflow_ready_made_product_operational_visible_sql('o');
 }
 if ($display_status_filter !== '') {
     $sql_conditions .= ' AND ' . printflow_expired_product_order_display_filter_sql($display_status_filter, 'o');
@@ -465,7 +465,7 @@ unset($order);
 $kpi_conditions = " AND o.order_type = 'product' AND {$staffOrderScopeSql}";
 $kpi_conditions .= ' AND ' . printflow_order_archive_scope_sql('o');
 if (!$is_pos_staff) {
-    $kpi_conditions .= ' AND ' . printflow_expired_product_order_exclude_archived_sql('o');
+    $kpi_conditions .= ' AND ' . printflow_ready_made_product_operational_visible_sql('o');
 }
 $kpi_types = '';
 $kpi_params = [];

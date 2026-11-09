@@ -1,6 +1,9 @@
 # Unpaid Product Order Retention
 
-Operational staff/admin lists hide **ready-made catalog product** orders
+Operational staff/admin lists use `printflow_ready_made_product_operational_visible_sql()`
+in `includes/ready_made_product_operational_visibility.php` (via
+`printflow_expired_product_order_exclude_archived_sql()` elsewhere). They hide
+**ready-made catalog product** orders
 (including stickers) when they are **Cancelled** or remain unpaid in
 **Pending / To Pay / Awaiting Payment / Expired** for more than 24 hours from
 `orders.order_date` (awaiting) or the recorded expired transition (expired).
