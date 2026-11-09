@@ -10,20 +10,26 @@ $assertions = [
     'only truly blocked compatibility states are disabled' => str_contains($source, ':disabled="!item.compatibility.selectable"') && str_contains($source, ':aria-disabled="item.compatibility.selectable'),
     'keyboard material selection is wired' => str_contains($source, '@keydown.arrow-down.prevent') && str_contains($source, '@keydown.enter.prevent'),
     'one click queues the material with an editable Actual Usage field' => str_contains($source, 'queueMaterialFromPicker(item') && str_contains($source, 'Actual Usage:') && !str_contains($source, '>Add actual usage</button>') && !str_contains($source, '>Confirm Actual Usage</button>'),
-    'Tarpaulin assignment labels print size, order qty, roll width, and planned footage' => str_contains($source, 'handlePendingTarpaulinDimensionInput')
+    'Tarpaulin assignment shows print width/height, order qty, and configured roll width' => str_contains($source, 'handlePendingTarpaulinDimensionInput')
         && str_contains($source, 'Customer print size:')
         && str_contains($source, 'Order quantity:')
         && str_contains($source, 'Configured roll width:')
-        && str_contains($source, 'Planned footage:')
+        && !str_contains($source, 'Planned footage:')
+        && str_contains($source, 'Print width (customer spec, ft)')
+        && str_contains($source, 'Tarpaulin customer print width in feet')
         && str_contains($source, 'tarpaulinAssignmentStaffGuidance')
-        && str_contains($source, 'tarpaulinAssignmentHeightIsLocked')
-        && !str_contains($source, 'Tarpaulin customer width in feet')
+        && str_contains($source, 'tarpaulinAssignmentDimensionsAreLocked')
         && !str_contains($source, 'tarpaulinAllocationSummary(pm)')
         && str_contains($source, 'pos-tarp-assignment-dims')
         && str_contains($source, 'customer_width_ft')
         && str_contains($source, 'customer_height_ft')
         && str_contains($source, 'x-show="!isPendingTarpaulinMaterial(pm) && !isPendingStickerLaminateMaterial(pm)"')
         && str_contains($source, 'calculated_linear_ft'),
+    'Sticker laminate assignment mirrors editable print width/height and stale-plan guards' => str_contains($source, 'handlePendingStickerLaminateDimensionInput')
+        && str_contains($source, 'recalculatePendingStickerLaminateFromDimensions')
+        && str_contains($source, 'stickerCalcFromPersistedPlan')
+        && str_contains($source, 'Sticker customer print width in feet')
+        && str_contains($source, 'stickerDimensionsMatchPersistedPlan'),
     'Tarpaulin auto-selects the fitted roll and can prefill calculated Actual Usage' => str_contains($source, 'maybeAutoSelectTarpaulinRoll') && str_contains($source, 'tarpaulin_linear_ft') && str_contains($source, 'out.Width') && str_contains($source, 'out.Height'),
     'secondary add-to-content button is removed' => !str_contains($source, '>Add to Order Content</button>'),
     'selected state persists for queued and saved materials' => str_contains($source, "'is-selected': isMaterialSelected(item.id)") && str_contains($source, 'isMaterialSelected(itemId)'),

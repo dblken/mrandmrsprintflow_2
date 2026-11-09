@@ -221,15 +221,18 @@ assert.ok(!Object.keys(stickerSpecs).some((key) => /sticker laminate selection/i
 assert.ok(Object.values(stickerSpecs).some((value) => /matte/i.test(String(value))),
     'customer finish remains visible');
 
-// --- Assignment keeps print size and usage visible; width is data, not an input ---
-assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row can still recalculate from the height editor');
+// --- Assignment keeps print size visible; width/height are editable customer fields ---
+assert.match(customSource, /handlePendingTarpaulinDimensionInput/, 'assignment row recalculates from print width/height editors');
 assert.match(customSource, /pos-tarp-assignment-dims/, 'Tarpaulin assignment card has a dedicated dimension block');
 assert.match(customSource, /Customer print size:/, 'customer print dimensions are explicitly labeled');
 assert.match(customSource, /Order quantity:/, 'finished-piece quantity is visible to staff');
 assert.match(customSource, /Configured roll width:/, 'inventory roll width is distinct from print width');
-assert.match(customSource, /Planned footage:/, 'per-material footage is labeled concisely');
-assert.match(customSource, /Print height \(customer spec\)/, 'the former Height field is tied to customer spec, not roll width');
-assert.match(customSource, /tarpaulinAssignmentHeightIsLocked/, 'joined-width plans can lock height to the POS allocation');
+assert.doesNotMatch(customSource, /Planned footage:/, 'planned linear footage stays in metadata, not on the card');
+assert.match(customSource, /Print width \(customer spec, ft\)/, 'print width is editable and labeled separately from roll width');
+assert.match(customSource, /Print height \(customer spec, ft\)/, 'print height is editable and labeled separately from roll width');
+assert.match(customSource, /Tarpaulin customer print width in feet/, 'width input exposes an accessible label');
+assert.match(customSource, /handlePendingStickerLaminateDimensionInput/, 'sticker laminate exposes the same width/height editors');
+assert.match(customSource, /recalculatePendingStickerLaminateFromDimensions/, 'sticker edits revalidate against the saved POS plan');
 assert.match(customSource, />Tarpaulin plan</, 'staff guidance explains allocation and deduction timing');
 assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"/,
     'generic Actual Usage input is hidden for sticker laminate rows');
@@ -240,9 +243,8 @@ assert.match(customSource, /isPendingStickerLaminateMaterial/, 'sticker assignme
 assert.match(customSource, /sticker_laminate_ft/, 'sticker assignment stores a dedicated usage method');
 assert.match(customSource, />Laminate plan</, 'sticker staff guidance is concise');
 assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll codes stay out of the UI');
-assert.doesNotMatch(customSource, /aria-label="Tarpaulin customer width in feet"/, 'Width (ft) input is not shown on the assignment card');
 assert.doesNotMatch(customSource, /tarpaulinAllocationSummary\(pm\)/, 'internal AUTO roll allocation text is not rendered');
-assert.doesNotMatch(customSource, />Width \(ft\)/, 'assignment card does not label a Width (ft) field');
+assert.doesNotMatch(customSource, />Width \(ft\)</, 'legacy Width (ft) label is not used on the assignment card');
 assert.match(customSource, /customer_width_ft/, 'pending materials store customer width separately from inventory qty');
 assert.match(customSource, /customer_height_ft/, 'pending materials store customer height separately from inventory qty');
 assert.match(customSource, /recalculatePendingTarpaulinFromDimensions/, 'editing dimensions recalculates/revalidates roll fit');
@@ -426,6 +428,72 @@ assert.strictEqual(multiRuntime.pendingMaterials[1].qty, 50,
 
 assert.match(customSource, /x-show="!isPendingTarpaulinMaterial\(pm\) && !isPendingStickerLaminateMaterial\(pm\)"[\s\S]{0,240}Actual Usage:/,
     'non-plan services retain the Actual Usage input');
+
+const stickerPlan = {
+    version: 'sticker_laminate_v1',
+    item_id: 21,
+    branch_id: 1,
+    width_ft: 5,
+    height_ft: 5,
+    finished_quantity: 1,
+    roll_width_ft: 6,
+    required_linear_ft: 5,
+    roll_allocations: [{ roll_id: 158, roll_code: 'MATTE-1', roll_width_ft: 6, length_ft: 5 }],
+};
+const stickerRecalc = extractObjectMethod(
+    customSource,
+    'recalculatePendingStickerLaminateFromDimensions(material) {',
+    'stickerAssignmentPrintSizeLabel(material) {'
+);
+const stickerPlanHelpers = `
+    stickerFinishedQuantityForValidation() { return 1; },
+    stickerDimensionsMatchPersistedPlan(width, height, quantity = null) {
+        const persisted = this.persistedPosStickerLaminateSelection();
+        if (!persisted) return false;
+        const qty = Number(quantity ?? 1);
+        return Math.abs(Number(persisted.width_ft || 0) - Number(width)) < 0.000001
+            && Math.abs(Number(persisted.height_ft || 0) - Number(height)) < 0.000001
+            && Number(persisted.finished_quantity || 0) === Number(qty);
+    },
+    stickerCalcFromPersistedPlan(material, width, height, quantity = null) {
+        const persisted = this.persistedPosStickerLaminateSelection();
+        if (!persisted || !material || Number(persisted.item_id) !== Number(material.item_id)) return null;
+        if (!this.stickerDimensionsMatchPersistedPlan(width, height, quantity)) return null;
+        const plannedRollAllocations = (persisted.roll_allocations || []).filter(row => row && Number(row.roll_id) > 0);
+        const plannedFootage = plannedRollAllocations.reduce((sum, row) => sum + Number(row.length_ft), 0);
+        if (!(plannedFootage > 0)) return null;
+        return {
+            calc: { required_linear_ft: plannedFootage, roll_width_ft: Number(persisted.roll_width_ft || 6) },
+            plannedRollAllocations,
+        };
+    },
+    persistedPosStickerLaminateSelection() { return ${JSON.stringify(stickerPlan)}; },
+    isPendingStickerLaminateMaterial(material) {
+        return !!(material && material.usage_method === 'sticker_laminate_ft');
+    }
+`;
+const stickerRuntime = new Function(`return ({
+    ${stickerRecalc},
+    ${stickerPlanHelpers},
+    clearPendingMaterialConfirmationError() {}
+});`)();
+const stickerMaterial = {
+    item_id: 21,
+    name: 'Matte Laminate',
+    customer_width_ft: 5,
+    customer_height_ft: 5,
+    usage_method: 'sticker_laminate_ft',
+    metadata: {},
+};
+assert.strictEqual(stickerRuntime.recalculatePendingStickerLaminateFromDimensions(stickerMaterial), true,
+    'unchanged sticker dimensions keep saved roll IDs and footage');
+assert.strictEqual(stickerMaterial.qty, 5);
+assert.strictEqual(stickerMaterial.metadata.sticker_roll_allocations[0].roll_id, 158);
+stickerMaterial.customer_width_ft = 6;
+assert.strictEqual(stickerRuntime.recalculatePendingStickerLaminateFromDimensions(stickerMaterial), false,
+    'edited sticker width cannot keep a stale saved allocation');
+assert.strictEqual(stickerMaterial.metadata.sticker_roll_allocations.length, 0);
+assert.match(stickerMaterial.dimension_fit_error || '', /no longer match/i);
 
 console.log(JSON.stringify({
     formula: 'required_linear_ft = min run length after fitting either finished dimension across roll width (linear_ft_v1)',
