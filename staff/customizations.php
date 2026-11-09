@@ -344,6 +344,37 @@ $online_closed_count = 0;
             color: #b45309;
         }
 
+        .pf-orders-urgent-expand-row td {
+            background: #fffbeb;
+            border-bottom: 1px solid #fde68a;
+        }
+
+        .pf-urgent-expand-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            border: 1px solid #fdba74;
+            background: #fff;
+            color: #9a3412;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .pf-urgent-expand-btn:hover {
+            background: #ffedd5;
+            border-color: #fb923c;
+        }
+
+        .customizations-mobile-urgent-expand {
+            margin: 4px 0 8px;
+            padding: 4px 0;
+        }
+
         .customizations-mobile-section-label {
             margin: 8px 0 4px;
             padding: 8px 12px;
@@ -2557,12 +2588,20 @@ $online_closed_count = 0;
                         <tbody class="divide-y divide-gray-100">
                             <template x-for="item in paginatedListItems" :key="item.key">
                                 <tr
-                                    :class="item.kind === 'section' ? 'pf-orders-section-row' : 'group transition-all relative cursor-pointer customization-row'"
-                                    @click="openOrderListItem(item)"
+                                    :class="item.kind === 'section' ? 'pf-orders-section-row' : (item.kind === 'urgent-expand' ? 'pf-orders-urgent-expand-row' : 'group transition-all relative cursor-pointer customization-row')"
+                                    @click="isValidOrderListRow(item) ? openOrderListItem(item) : null"
                                 >
                                     <template x-if="item.kind === 'section'">
                                         <td colspan="7" class="px-6 py-2">
                                             <div class="pf-orders-section-label" :class="item.label === 'Urgent Orders' ? 'pf-orders-section-label--urgent' : ''" x-text="item.label"></div>
+                                        </td>
+                                    </template>
+                                    <template x-if="item.kind === 'urgent-expand'">
+                                        <td colspan="7" class="px-6 py-2">
+                                            <button type="button" class="pf-urgent-expand-btn" @click.stop="expandUrgentOrders()">
+                                                Show all urgent orders
+                                                (<span x-text="item.totalUrgent"></span>)
+                                            </button>
                                         </td>
                                     </template>
                                     <template x-if="isValidOrderListRow(item)">
@@ -2657,6 +2696,13 @@ $online_closed_count = 0;
                                 :class="item.label === 'All Orders' ? 'customizations-mobile-section-label--regular' : ''"
                                 x-text="item.label"
                             ></div>
+                        </template>
+                        <template x-if="item.kind === 'urgent-expand'">
+                            <div class="customizations-mobile-urgent-expand">
+                                <button type="button" class="pf-urgent-expand-btn" style="width:100%;justify-content:center;" @click.stop="expandUrgentOrders()">
+                                    Show all urgent orders (<span x-text="item.totalUrgent"></span>)
+                                </button>
+                            </div>
                         </template>
                         <template x-if="isValidOrderListRow(item)">
                         <article
@@ -4319,6 +4365,8 @@ window.pfServiceFieldCatalog = (() => {
             detailRequestToken: 0,
             currentPage: 1,
             itemsPerPage: 10,
+            urgentOrdersPreviewLimit: 3,
+            urgentOrdersExpanded: false,
             orders: [],
             statusOverrides: {},
             isPosSimplifiedView: <?php echo $isPosCustomizationView ? 'true' : 'false'; ?>,
@@ -9463,12 +9511,13 @@ window.pfServiceFieldCatalog = (() => {
                     this.bumpOrdersVersion();
                 }
                 this.$watch('search', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
-                this.$watch('activeStatus', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('activeStatus', () => { this.urgentOrdersExpanded = false; this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('serviceFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('dateFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('customDateFrom', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('customDateTo', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('sortOrder', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('priorityFilter', () => { this.urgentOrdersExpanded = false; this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('showDetailsModal', (isOpen) => {
                     if (!isOpen) this.clearDeepLinkParams();
                 });
@@ -10441,8 +10490,107 @@ window.pfServiceFieldCatalog = (() => {
                     if (item.kind === 'section') {
                         return typeof item.label === 'string' && item.label !== '';
                     }
+                    if (item.kind === 'urgent-expand') {
+                        return Number(item.totalUrgent) > Number(item.hiddenCount || 0);
+                    }
                     return this.isValidOrderListRow(item);
                 });
+            },
+
+            splitUrgentRegularRows(rows) {
+                const urgent = [];
+                const regular = [];
+                (Array.isArray(rows) ? rows : []).forEach((row) => {
+                    if (this.orderIsUrgentRequest(row)) {
+                        urgent.push(row);
+                    } else {
+                        regular.push(row);
+                    }
+                });
+                return { urgent, regular };
+            },
+
+            usesCollapsedUrgentPreview() {
+                return this.activeStatus === 'ALL'
+                    && !this.urgentOrdersExpanded
+                    && this.priorityFilter === 'ALL';
+            },
+
+            buildCollapsedUrgentListItems() {
+                const items = [];
+                const { urgent, regular } = this.splitUrgentRegularRows(this.filteredOrders);
+                const limit = Math.max(1, Number(this.urgentOrdersPreviewLimit) || 3);
+                const visibleUrgentCount = Math.min(urgent.length, limit);
+                const pageOneRegularSlots = Math.max(0, this.itemsPerPage - visibleUrgentCount);
+
+                if (this.currentPage === 1) {
+                    if (visibleUrgentCount > 0) {
+                        items.push({
+                            kind: 'section',
+                            key: 'section-urgent-0',
+                            label: 'Urgent Orders',
+                            jo: null
+                        });
+                        urgent.slice(0, limit).forEach((jo) => {
+                            items.push({
+                                kind: 'row',
+                                key: `row-${jo.order_type || 'JOB'}-${jo.id}`,
+                                jo
+                            });
+                        });
+                        const hiddenUrgent = urgent.length - visibleUrgentCount;
+                        if (hiddenUrgent > 0) {
+                            items.push({
+                                kind: 'urgent-expand',
+                                key: 'urgent-expand',
+                                hiddenCount: hiddenUrgent,
+                                totalUrgent: urgent.length,
+                                jo: null
+                            });
+                        }
+                    }
+                    const regularChunk = regular.slice(0, pageOneRegularSlots);
+                    if (regularChunk.length > 0) {
+                        items.push({
+                            kind: 'section',
+                            key: 'section-all-0',
+                            label: 'All Orders',
+                            jo: null
+                        });
+                        regularChunk.forEach((jo) => {
+                            items.push({
+                                kind: 'row',
+                                key: `row-${jo.order_type || 'JOB'}-${jo.id}`,
+                                jo
+                            });
+                        });
+                    }
+                    return items;
+                }
+
+                const regularOffset = pageOneRegularSlots + (this.currentPage - 2) * this.itemsPerPage;
+                const regularChunk = regular.slice(regularOffset, regularOffset + this.itemsPerPage);
+                if (regularChunk.length > 0) {
+                    items.push({
+                        kind: 'section',
+                        key: `section-all-${regularOffset}`,
+                        label: 'All Orders',
+                        jo: null
+                    });
+                    regularChunk.forEach((jo) => {
+                        items.push({
+                            kind: 'row',
+                            key: `row-${jo.order_type || 'JOB'}-${jo.id}`,
+                            jo
+                        });
+                    });
+                }
+                return items;
+            },
+
+            expandUrgentOrders() {
+                this.urgentOrdersExpanded = true;
+                this.currentPage = 1;
             },
 
             get paginatedOrders() {
@@ -10453,6 +10601,9 @@ window.pfServiceFieldCatalog = (() => {
 
             get paginatedListItems() {
                 if (this.dateCoveragePending) return [];
+                if (this.usesCollapsedUrgentPreview()) {
+                    return this.sanitizeOrderListItems(this.buildCollapsedUrgentListItems());
+                }
                 const start = (this.currentPage - 1) * this.itemsPerPage;
                 const end = start + this.itemsPerPage;
                 const built = this.buildOrderListItems(this.filteredOrders.slice(start, end), start);
@@ -10475,7 +10626,7 @@ window.pfServiceFieldCatalog = (() => {
 
             get shouldShowPagination() {
                 if (this.dateCoveragePending) return false;
-                return this.getActiveTabMatchingCount() > this.itemsPerPage;
+                return this.totalPages > 1;
             },
 
             get urgentOrderCount() {
@@ -10483,9 +10634,20 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             get totalPages() {
-                const count = this.getActiveTabMatchingCount();
+                const count = this.filteredOrders.length;
                 if (count <= this.itemsPerPage) {
                     return 1;
+                }
+                if (this.usesCollapsedUrgentPreview()) {
+                    const { urgent, regular } = this.splitUrgentRegularRows(this.filteredOrders);
+                    const limit = Math.max(1, Number(this.urgentOrdersPreviewLimit) || 3);
+                    const visibleUrgentCount = Math.min(urgent.length, limit);
+                    const pageOneRegularSlots = Math.max(0, this.itemsPerPage - visibleUrgentCount);
+                    const regularAfterPageOne = Math.max(0, regular.length - pageOneRegularSlots);
+                    if (regularAfterPageOne === 0) {
+                        return 1;
+                    }
+                    return 1 + Math.ceil(regularAfterPageOne / this.itemsPerPage);
                 }
                 return Math.ceil(count / this.itemsPerPage);
             },

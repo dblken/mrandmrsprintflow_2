@@ -69,6 +69,8 @@ assert.ok(page.includes('if (this.dateCoveragePending) return []'), 'partial dat
 assert.ok(page.includes('if (this.dateCoveragePending) return false;'), 'pagination is hidden until the date-filtered total is complete');
 assert.ok(page.includes('(b._businessTs || 0) - (a._businessTs || 0)'), 'newest/oldest sorting uses business timestamps');
 assert.ok(page.includes('return urgent.concat(regular);'), 'ALL tab groups urgent orders before other rows while preserving chronology within each group');
+assert.ok(page.includes('urgentOrdersPreviewLimit: 3'), 'urgent orders default to a compact preview on the ALL tab');
+assert.ok(page.includes('buildCollapsedUrgentListItems()'), 'collapsed urgent preview injects a show-all control before the remaining list');
 assert.ok(api.includes('ORDER BY COALESCE(o.order_date, jo.created_at) DESC,'), 'job-order SQL pages use the same business date and stable identity ordering');
 assert.ok(api.includes("$a['order_business_date'] ?? $a['order_date'] ?? $a['created_at']"), 'combined API ordering prefers the same business date');
 assert.ok(/\$dashboardFetchLimit\s*=\s*\$serviceOnly\s*\?\s*\$dashboardListOffset\s*\+\s*\$dashboardListLimit\s*\+\s*1/.test(api),
