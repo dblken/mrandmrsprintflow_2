@@ -8,9 +8,14 @@ const formatEnd = source.indexOf('            async completeOrder(', formatStart
 assert.ok(helperStart >= 0 && helperEnd > helperStart && formatStart >= 0 && formatEnd > formatStart);
 const context = Object.create(new Function('return ({' + source.slice(helperStart, helperEnd) + source.slice(formatStart, formatEnd) + '})')());
 const selected = '2026-09-07 14:30:00';
-const expected = new Intl.DateTimeFormat(undefined, {
-    timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit'
-}).format(new Date(Date.UTC(2026, 8, 7, 14, 30) - 8 * 60 * 60 * 1000));
+const parsed = new Date(Date.UTC(2026, 8, 7, 14, 30) - 8 * 60 * 60 * 1000);
+const datePart = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric',
+}).format(parsed);
+const timePart = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit', hour12: true,
+}).format(parsed);
+const expected = `${datePart} at ${timePart}`;
 assert.equal(context.formatOrderBusinessDate({order_business_date: selected, order_date: '2026-09-30 01:00:00', created_at: '2026-09-30 13:00:00'}), expected);
 assert.equal(context.formatOrderBusinessDate({order_date: selected, created_at: '2026-09-30 13:00:00'}), expected);
 assert.equal(context.formatOrderBusinessDate({created_at: selected}), expected);
