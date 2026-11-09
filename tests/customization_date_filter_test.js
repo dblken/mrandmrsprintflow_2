@@ -75,6 +75,7 @@ assert.ok(page.includes('buildCollapsedUrgentListItems()'), 'collapsed urgent pr
 assert.ok(page.includes('orderIsActiveUrgentRequest(row)'), 'urgent list grouping only includes still-active urgent orders');
 assert.ok(page.includes('collapseUrgentOrders()'), 'expanded urgent preview can collapse back to the compact list');
 assert.ok(page.includes('urgentFocusSortActive'), 'View Now applies urgent-only filter with soonest needed-date ordering');
+assert.ok(page.includes("this.priorityFilter = 'ALL'") && page.includes('collapseUrgentOrders()'), 'Show less returns to the default all-orders list');
 assert.ok(page.includes('text-align: center'), 'show-all urgent control is centered in the table');
 assert.ok(api.includes('ORDER BY COALESCE(o.order_date, jo.created_at) DESC,'), 'job-order SQL pages use the same business date and stable identity ordering');
 assert.ok(api.includes("$a['order_business_date'] ?? $a['order_date'] ?? $a['created_at']"), 'combined API ordering prefers the same business date');

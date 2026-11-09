@@ -10685,7 +10685,11 @@ window.pfServiceFieldCatalog = (() => {
 
             collapseUrgentOrders() {
                 this.urgentOrdersExpanded = false;
+                this.urgentFocusSortActive = false;
+                this.priorityFilter = 'ALL';
+                this.activeStatus = 'ALL';
                 this.currentPage = 1;
+                this.scheduleFilterCoverage();
             },
 
             get paginatedOrders() {
@@ -13334,10 +13338,20 @@ window.pfServiceFieldCatalog = (() => {
                 const value = this.orderBusinessDateValue(row);
                 if (!value) return '';
                 const parsed = this.parseBusinessDateValue(value);
-                return !parsed ? value : new Intl.DateTimeFormat(undefined, {
-                    timeZone: 'Asia/Manila', month: 'long', day: 'numeric', year: 'numeric',
-                    hour: 'numeric', minute: '2-digit'
+                if (!parsed) return value;
+                const datePart = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Manila',
+                    month: 'long',
+                    day: 'numeric',
+                    year: 'numeric',
                 }).format(parsed);
+                const timePart = new Intl.DateTimeFormat('en-US', {
+                    timeZone: 'Asia/Manila',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                }).format(parsed);
+                return `${datePart} at ${timePart}`;
             },
             async completeChangeItemRework(machineId = null) {
                 const orderId = this.resolveChangeItemOrderId(this.currentJo);
