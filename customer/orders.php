@@ -3345,7 +3345,6 @@ function buildReceiptHtml(receipt) {
             <div class="receipt-payment-breakdown">
                 <div class="receipt-total-line"><span>Payment Method</span><strong>${receiptEscape(payment.method || 'Not Specified')}</strong></div>
                 <div class="receipt-total-line"><span>Payment Status</span><strong style="color:#0f766e;">${receiptEscape(payment.status || 'Paid')}</strong></div>
-                <div class="receipt-total-line"><span>Claim Status</span><strong style="color:#0f766e;">Ready to Claim</strong></div>
                 ${payment.reference ? `<div class="receipt-total-line"><span>Payment Reference</span><span>${receiptEscape(payment.reference)}</span></div>` : ''}
             </div>
         </div>
