@@ -446,6 +446,34 @@ $assert($screenshot !== null
     && $screenshot['process_value'] === 'Cut Out',
     'A 5 × 5 ft Matte Cut Out reaches laminate validation with width, height, finish, type, and quantity separate.');
 $glossPrinted = printflow_pos_sticker_laminate_selection($liveLine('Glossy', 'Printed', 2), $liveFields);
+$customSizeSentinel = $liveLine('Glossy', 'Printed', 1);
+$customSizeSentinel['customization']['dimensions'] = 'Custom Size';
+$glossFromCustomSizeValue = printflow_pos_sticker_laminate_selection($customSizeSentinel, $liveFields);
+$assert($glossFromCustomSizeValue !== null
+    && $glossFromCustomSizeValue['item_id'] === 20
+    && $glossFromCustomSizeValue['width_ft'] === 5.0
+    && $glossFromCustomSizeValue['height_ft'] === 5.0
+    && $glossFromCustomSizeValue['finish_value'] === 'Glossy'
+    && $glossFromCustomSizeValue['process_value'] === 'Printed',
+    'Custom Size as the dimensions sentinel reaches laminate validation instead of the unconfigured-option error.');
+$stalePresetLine = [
+    'qty' => 1,
+    'customization' => ['dimensions' => 'Retired Glossy Sticker Printed (99ft X 99ft)', 'branch_id' => '1'],
+];
+$staleThrown = false;
+try {
+    printflow_pos_sticker_laminate_selection($stalePresetLine, [$liveFields[0]]);
+} catch (RuntimeException $error) {
+    $staleThrown = str_contains($error->getMessage(), 'no longer configured');
+}
+$assert($staleThrown, 'A genuinely stale fixed-size preset still fails configuration validation.');
+$fixedPresetLine = [
+    'qty' => 1,
+    'customization' => ['dimensions' => 'Matte Sticker Printed (1ft X 2ft)', 'branch_id' => '1'],
+];
+$fixedPreset = printflow_pos_sticker_laminate_selection($fixedPresetLine, [$liveFields[0]]);
+$assert($fixedPreset !== null && $fixedPreset['item_id'] === 21 && $fixedPreset['width_ft'] === 1.0 && $fixedPreset['height_ft'] === 2.0,
+    'Configured fixed-size sticker options still resolve for laminate validation.');
 $assert($glossPrinted !== null && $glossPrinted['item_id'] === 20 && $glossPrinted['quantity'] === 2
     && $glossPrinted['finish_value'] === 'Glossy' && $glossPrinted['process_value'] === 'Printed',
     'Glossy Printed uses Gloss Laminate and keeps the sticker type separate.');

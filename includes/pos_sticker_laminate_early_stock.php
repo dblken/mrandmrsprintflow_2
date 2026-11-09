@@ -34,48 +34,82 @@ function printflow_pos_sticker_laminate_item_for_custom_finish(string $finish, s
     return null;
 }
 
-/** Resolve the selected configured sticker option; incomplete form edits stay pending. */
-function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows): ?array
+/** The combined preset size dropdown, not separate Finish / Sticker Type controls. */
+function printflow_pos_sticker_is_preset_size_select_field(array $row): bool
 {
-    $customization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
-    $finishSelections = [];
-    $dimensionSelections = [];
+    if (!is_array($row) || empty($row['is_visible'])) return false;
+    if (strtolower(trim((string)($row['field_type'] ?? ''))) !== 'select') return false;
+    $key = strtolower(trim((string)($row['field_key'] ?? '')));
+    if (in_array($key, ['finish', 'sticker_type', 'sticker_custom_finish', 'sticker_custom_process'], true)) {
+        return false;
+    }
+    $label = strtolower(trim((string)($row['field_label'] ?? '')));
+    return preg_match('/\b(dimensions?|sizes?)\b/', $key . ' ' . $label) === 1;
+}
+
+/** True when staff chose Custom Size / Others or the POSTed dimensions sentinel matches. */
+function printflow_pos_sticker_custom_size_active(array $customization, array $fieldRows): bool
+{
     foreach ($fieldRows as $row) {
-        if (!is_array($row) || empty($row['is_visible'])) continue;
-        $type = strtolower(trim((string)($row['field_type'] ?? '')));
-        if (!in_array($type, ['select', 'radio'], true)) continue;
+        if (!printflow_pos_sticker_is_preset_size_select_field($row)) continue;
         $key = trim((string)($row['field_key'] ?? ''));
         $label = trim((string)($row['field_label'] ?? ''));
         $selected = trim((string)($customization[$key] ?? $customization[$label] ?? ''));
         if ($selected === '') continue;
-        if (!preg_match('/\b(dimensions?|sizes?|finish)\b/i', $key . ' ' . $label)) continue;
-        $options = $row['_options'] ?? $row['field_options'] ?? [];
-        if (is_string($options)) $options = json_decode($options, true);
-        if (!is_array($options)) throw new RuntimeException('The configured Sticker/Decals options could not be verified.');
-        $optionFound = false;
-        foreach ($options as $option) {
-            $value = trim((string)(is_array($option) ? ($option['value'] ?? '') : $option));
-            if ($value === $selected) { $optionFound = true; break; }
+        if (function_exists('printflow_service_field_is_custom_size_option_value')
+            && printflow_service_field_is_custom_size_option_value($selected)) {
+            return true;
         }
-        if (!$optionFound) throw new RuntimeException('A selected Sticker/Decals option is no longer configured. Refresh the POS form.');
-        $mappedItemId = printflow_pos_sticker_laminate_item_for_finish($selected);
-        if ($mappedItemId !== null) $finishSelections[] = ['row' => $row, 'value' => $selected, 'item_id' => $mappedItemId];
-        $pair = printflow_pos_dimension_pair_from_option($selected);
-        if ($pair !== null) {
-            $unit = printflow_pos_dimension_option_unit($selected, $row);
-            if ($unit === '') throw new RuntimeException('The selected Sticker/Decals size has no valid measurement unit.');
-            $dimensionSelections[] = ['row' => $row, 'value' => $selected, 'pair' => $pair, 'unit' => $unit];
+        if (preg_match('/^custom(?:ize)?\s*size\b/i', $selected)) {
+            return true;
         }
     }
-    $customSizeSelected = false;
-    foreach ($fieldRows as $row) {
-        if (!is_array($row)) continue;
-        $key = trim((string)($row['field_key'] ?? ''));
-        $label = trim((string)($row['field_label'] ?? ''));
-        $selected = trim((string)($customization[$key] ?? $customization[$label] ?? ''));
-        if ($selected !== '' && function_exists('printflow_service_field_is_custom_size_option_value')
-            && printflow_service_field_is_custom_size_option_value($selected)) {
-            $customSizeSelected = true;
+    $dimensionsValue = printflow_pos_sticker_custom_spec_value($customization, [
+        'dimensions', 'Dimensions', 'Dimensions And Finish',
+    ]);
+    return $dimensionsValue !== ''
+        && function_exists('printflow_service_field_is_custom_size_option_value')
+        && printflow_service_field_is_custom_size_option_value($dimensionsValue);
+}
+
+/** Resolve the selected configured sticker option; incomplete form edits stay pending. */
+function printflow_pos_sticker_laminate_selection(array $line, array $fieldRows): ?array
+{
+    $customization = is_array($line['customization'] ?? null) ? $line['customization'] : [];
+    $customSizeSelected = printflow_pos_sticker_custom_size_active($customization, $fieldRows);
+    $finishSelections = [];
+    $dimensionSelections = [];
+    if (!$customSizeSelected) {
+        foreach ($fieldRows as $row) {
+            if (!printflow_pos_sticker_is_preset_size_select_field($row)) continue;
+            $key = trim((string)($row['field_key'] ?? ''));
+            $label = trim((string)($row['field_label'] ?? ''));
+            $selected = trim((string)($customization[$key] ?? $customization[$label] ?? ''));
+            if ($selected === '') continue;
+            $options = $row['_options'] ?? $row['field_options'] ?? [];
+            if (is_string($options)) $options = json_decode($options, true);
+            if (!is_array($options)) throw new RuntimeException('The configured Sticker/Decals options could not be verified.');
+            if (function_exists('printflow_service_field_is_custom_size_option_value')
+                && printflow_service_field_is_custom_size_option_value($selected)) {
+                $customSizeSelected = true;
+                break;
+            }
+            $optionFound = false;
+            foreach ($options as $option) {
+                $value = trim((string)(is_array($option) ? ($option['value'] ?? '') : $option));
+                if ($value === $selected) { $optionFound = true; break; }
+            }
+            if (!$optionFound) {
+                throw new RuntimeException('A selected Sticker/Decals option is no longer configured. Refresh the POS form.');
+            }
+            $mappedItemId = printflow_pos_sticker_laminate_item_for_finish($selected);
+            if ($mappedItemId !== null) $finishSelections[] = ['row' => $row, 'value' => $selected, 'item_id' => $mappedItemId];
+            $pair = printflow_pos_dimension_pair_from_option($selected);
+            if ($pair !== null) {
+                $unit = printflow_pos_dimension_option_unit($selected, $row);
+                if ($unit === '') throw new RuntimeException('The selected Sticker/Decals size has no valid measurement unit.');
+                $dimensionSelections[] = ['row' => $row, 'value' => $selected, 'pair' => $pair, 'unit' => $unit];
+            }
         }
     }
     if ($customSizeSelected) {
