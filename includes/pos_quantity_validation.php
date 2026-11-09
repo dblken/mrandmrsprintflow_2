@@ -1,4 +1,10 @@
 <?php
+
+/** Staff Actual Usage in Production Assignment may not exceed this amount per material line. */
+if (!defined('PRINTFLOW_POS_MAX_MATERIAL_QUANTITY')) {
+    define('PRINTFLOW_POS_MAX_MATERIAL_QUANTITY', 10000.0);
+}
+
 /** General positive whole-number validation for measured material quantities. */
 function printflow_pos_parse_positive_quantity($value): int
 {
@@ -54,8 +60,8 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
             }
         }
         $quantity = (float)printflow_pos_parse_positive_quantity($value);
-        if ($quantity > 99999999.99) {
-            throw new InvalidArgumentException('Material quantity exceeds the supported DECIMAL(10,2) range.');
+        if ($quantity > PRINTFLOW_POS_MAX_MATERIAL_QUANTITY) {
+            throw new InvalidArgumentException('Material quantity cannot exceed 10,000 in its inventory unit.');
         }
         return $quantity;
     }
@@ -75,7 +81,7 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
         throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
     $quantity = (float)$raw;
-    if (!is_finite($quantity) || $quantity <= 0 || $quantity > 99999999.99) {
+    if (!is_finite($quantity) || $quantity <= 0 || $quantity > PRINTFLOW_POS_MAX_MATERIAL_QUANTITY) {
         throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
     return $quantity;

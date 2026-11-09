@@ -3352,7 +3352,7 @@ $online_closed_count = 0;
                                                         </div>
                                                         <div x-show="!isPendingTarpaulinMaterial(pm) && !isPendingStickerLaminateMaterial(pm)" style="margin-top:3px;color:#64748b;font-size:11px;">Enter the actual quantity used in the inventory unit.</div>
                                                         <label x-show="!isPendingTarpaulinMaterial(pm) && !isPendingStickerLaminateMaterial(pm)" style="display:block;color:#334155;font-size:11px;margin-top:5px;font-weight:700;">Actual Usage:
-                                                            <input type="number" min="0.001" step="any" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
+                                                            <input type="number" min="0.001" max="10000" step="any" inputmode="decimal" :value="pm.qty" @beforeinput="markPendingMaterialQtyEdit(pm, $event.target, $event)" @keydown="markPendingMaterialQtyKeyEdit(pm, $event.target, $event)" @keyup="clearPendingMaterialQtyKeyEdit($event.target)" @pointerdown="markPendingMaterialQtyPointerEdit(pm, $event.target, $event)" @pointerup="clearPendingMaterialQtyPointerEdit($event.target)" @pointercancel="clearPendingMaterialQtyPointerEdit($event.target)" @input="handlePendingMaterialQtyInput(pm, $event.target.value, $event.target, $event)" @blur="handlePendingMaterialQtyBlur(pm, $event.target, $event)" aria-label="Actual material usage quantity"
                                                                    style="width:84px;margin:0 3px;padding:3px 5px;border:1px solid #cbd5e1;border-radius:5px;">
                                                             <span x-text="pm.uom"></span>
                                                         </label>
@@ -3371,7 +3371,7 @@ $online_closed_count = 0;
                                                 </div>
                                             </template>
                                         </div>
-                                        <div x-show="productionErrors.material" x-text="productionErrors.material" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
+                                        <div x-show="showProductionMaterialSectionError()" x-text="productionErrors.material" style="color:#dc2626;font-size:13px;margin-top:6px;"></div>
                                     </div>
 
                                 </div>
@@ -4591,7 +4591,7 @@ window.pfServiceFieldCatalog = (() => {
             },
             handlePendingMaterialQtyInput(material, value, input = null, event = null) {
                 const raw = String(value ?? '').trim();
-                const qty = raw === '' ? NaN : Number(raw);
+                const normalizedQty = raw === '' ? null : this.normalizePosMaterialQuantity(raw, material.item_id);
                 const dataset = input?.dataset || {};
                 const trustedInput = event?.isTrusted === true;
                 const beforeInputIntent = dataset.actualUsageEditPending === '1';
@@ -4613,13 +4613,14 @@ window.pfServiceFieldCatalog = (() => {
                     delete input.dataset.actualUsageKeyEditAt;
                     this.clearPendingMaterialQtyPointerEdit(input);
                 }
-                material.qty = raw === '' ? '' : qty;
-                material.manual_quantity_confirmed = explicitEdit && this.isValidPosMaterialQuantity(raw, material.item_id);
+                material.qty = raw === '' ? '' : (normalizedQty !== null ? normalizedQty : raw);
+                material.manual_quantity_confirmed = explicitEdit && normalizedQty !== null
+                    && this.isValidPosMaterialQuantity(raw, material.item_id);
                 material.actual_usage_overridden = false;
                 if (!material.metadata || typeof material.metadata !== 'object') material.metadata = {};
                 material.metadata.material_usage = {
                     estimate: null,
-                    actual: Number.isFinite(qty) ? qty : null,
+                    actual: normalizedQty,
                     method: 'manual',
                     staff_confirmed: material.manual_quantity_confirmed,
                     manual_actual_usage_confirmed: material.manual_quantity_confirmed === true && material.manual_confirmation_required === true,
@@ -4660,7 +4661,22 @@ window.pfServiceFieldCatalog = (() => {
                 if (this.productionAssignmentSubmitAttempted !== true || !material) return false;
                 if (this.isPendingTarpaulinMaterial?.(material)) return false;
                 if (material.dimension_fit_error) return false;
+                const raw = String(material.qty ?? '').trim();
+                if (raw !== '' && !this.isValidPosMaterialQuantity(raw, material.item_id)) return true;
                 return material.manual_quantity_confirmed !== true;
+            },
+            /**
+             * Section-level material errors stay for stock/selection issues. The generic
+             * actual-quantity copy is shown per material row to avoid duplicate banners.
+             */
+            showProductionMaterialSectionError() {
+                const message = String(this.productionErrors?.material || '').trim();
+                if (!message) return false;
+                if (message !== 'Enter a valid actual quantity before saving.') return true;
+                if (this.productionAssignmentSubmitAttempted !== true) return true;
+                const rows = [...(this.pendingMaterials || [])];
+                if (rows.some((row) => row && this.showPendingMaterialUsageError(row))) return false;
+                return true;
             },
             /** Clears deferred Actual Usage UI state when opening/closing a Production Assignment modal. */
             resetProductionAssignmentValidationState() {
@@ -11545,6 +11561,8 @@ window.pfServiceFieldCatalog = (() => {
                     }
                     const invalidPending = queuedMaterials.find(material => {
                         if (!material) return false;
+                        const rawQty = String(material.qty ?? material.quantity ?? '').trim();
+                        if (rawQty === '' || !this.isValidPosMaterialQuantity(rawQty, material.item_id)) return true;
                         const qty = Number(material.qty ?? material.quantity);
                         if (!Number.isFinite(qty) || qty <= 0) return true;
                         const uom = String(material.uom || '').toLowerCase();

@@ -19,6 +19,7 @@ assert.doesNotMatch(
   'Actual Usage message must not use ungated x-show (avoids pre-submit visibility)'
 );
 assert.match(page, /resetProductionAssignmentValidationState\(\)/, 'Modal open/close resets deferred validation state');
+assert.match(page, /showProductionMaterialSectionError\(\)/, 'Section material error deduplicates field-level Actual Usage copy');
 assert.match(page, /Please select at least one material to be used for this job\./, 'No-material message is configured');
 assert.doesNotMatch(
   page,
@@ -105,6 +106,7 @@ function baseCtx(overrides = {}) {
     inkStockIssues: [],
     isPosSetPriceFlow: () => true,
     isPendingTarpaulinMaterial: () => false,
+    isPendingStickerLaminateMaterial: () => false,
     platesBlankUsageError: () => '',
     posterPrimaryUsageError: () => '',
     getInventoryItem(id) { return Number(id) === 212 ? item : null; },

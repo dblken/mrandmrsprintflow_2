@@ -44,7 +44,7 @@ foreach ([['pcs', 'by_length'], ['sheet', 'per_piece'], ['unit', 'manual']] as [
     }
     throw new RuntimeException('A fractional material quantity was accepted for a discrete inventory unit.');
 }
-foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '100000000.00'] as $invalid) {
+foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '10001', '100000000.00', '20000000'] as $invalid) {
     try {
         printflow_pos_parse_positive_material_quantity($invalid, $measuredFt);
     } catch (InvalidArgumentException $error) {
@@ -52,14 +52,16 @@ foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '100000000.00'] as $invalid) {
     }
     throw new RuntimeException('An invalid measured material quantity was accepted: ' . $invalid);
 }
+if (printflow_pos_parse_positive_material_quantity('10000', ['unit_of_measure' => 'sheet', 'consumption_method' => 'per_piece']) !== 10000.0) {
+    throw new RuntimeException('Measured material quantity at the 10,000 cap was rejected.');
+}
 $wholeRangeRejected = false;
 try {
-    printflow_pos_parse_positive_material_quantity('100000000', ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']);
+    printflow_pos_parse_positive_material_quantity('10001', ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']);
 } catch (InvalidArgumentException $error) {
-    // The material assignment and ledger storage are DECIMAL(10,2).
     $wholeRangeRejected = true;
 }
-if (!$wholeRangeRejected) throw new RuntimeException('Material quantity above the DECIMAL(10,2) storage range was accepted.');
+if (!$wholeRangeRejected) throw new RuntimeException('Material quantity above the 10,000 Actual Usage cap was accepted.');
 if (printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece']) !== 0.25
     || printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'm', 'consumption_method' => 'by_area']) !== 0.25
     || printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'l', 'consumption_method' => 'dimension_sheet']) !== 0.25) {

@@ -38,19 +38,32 @@ assert(feedbackStart >= 0 && feedbackEnd > feedbackStart, 'Production validation
 const feedbackMethods = new Function(`return ({${page.slice(feedbackStart, feedbackEnd)}\n});`)();
 assert.equal((page.match(/this\.setProductionValidationFeedback\(\);/g) || []).length, 2,
     'Both Set Final Price submission branches route validation feedback through the deduplicating helper.');
-assert.equal((page.match(/x-show="productionErrors\.material"/g) || []).length, 1,
-    'The material validation error has a single inline renderer.');
+assert.equal((page.match(/x-show="productionErrors\.material"/g) || []).length, 0,
+    'Generic material errors are not duplicated via an ungated section x-show.');
+assert.match(page, /x-show="showProductionMaterialSectionError\(\)"/, 'Section material errors use the deduplicated renderer.');
+assert.match(
+  page,
+  /template x-if="productionAssignmentSubmitAttempted === true && showPendingMaterialUsageError\(pm\)"[\s\S]{0,200}Enter a valid actual quantity before saving\./,
+  'Field-level Actual Usage validation copy is rendered once per material row.'
+);
 
-function context(error) {
+function context(error, material = null) {
     return {
         productionErrors: { material: error },
         footerActionError: error,
-        __material: null,
-        getInventoryItem() {
+        __material: material,
+        getInventoryItem(itemId) {
             const material = this.__material;
-            return material ? { ...material, unit_of_measure: material.unit_of_measure || material.uom } : null;
+            if (!material) return null;
+            if (itemId != null && Number(material.item_id || material.id) !== Number(itemId)) return null;
+            return {
+                id: material.item_id || material.id,
+                name: material.name,
+                unit_of_measure: material.unit_of_measure || material.uom,
+            };
         },
         isValidPosMaterialQuantity: methods.isValidPosMaterialQuantity,
+        normalizePosMaterialQuantity: methods.normalizePosMaterialQuantity,
         handlePendingMaterialQtyInput: methods.handlePendingMaterialQtyInput,
         clearPendingMaterialQtyPointerEdit: methods.clearPendingMaterialQtyPointerEdit,
         clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError
@@ -79,6 +92,7 @@ function dispatchSameValueEditWithoutInput(ctx, material, value) {
 
 const confirmationError = 'Enter a valid actual quantity for Pp Stkr Matte 98 before saving.';
 const item = {
+    item_id: 98,
     name: 'Pp Stkr Matte 98',
     uom: 'pcs',
     qty: 1,
@@ -92,12 +106,11 @@ const item = {
 assert.equal(item.manual_quantity_confirmed, false, 'A prefilled quantity alone is not confirmation.');
 assert.equal(validateEstimatedMaterial(item), false, 'Untouched prefilled manual usage remains blocked by the final assignment validator.');
 const untouchedTarget = { value: '1', dataset: {} };
-const untouchedContext = context('');
-untouchedContext.__material = item;
+const untouchedContext = context('', item);
 blurBinding(item, { target: untouchedTarget }, methods.handlePendingMaterialQtyBlur.bind(untouchedContext));
 assert.equal(item.manual_quantity_confirmed, false, 'Focusing and leaving an untouched prefilled value does not confirm it.');
 
-const sameValueContext = context(confirmationError);
+const sameValueContext = context(confirmationError, item);
 dispatchSameValueEditWithoutInput(sameValueContext, item, '1');
 assert.equal(item.qty, 1, 'Same-value edit preserves the explicit actual quantity.');
 assert.equal(item.manual_quantity_confirmed, true, 'An explicit edit gesture confirms a valid prefilled quantity even when no native input event is emitted.');
@@ -108,7 +121,7 @@ assert.equal(validateEstimatedMaterial(item), true, 'Same-value explicit entry p
 
 const autofillItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: { material_usage: { staff_confirmed: false } } };
 const autofillTarget = { value: '2', dataset: {} };
-const autofillContext = context(confirmationError);
+const autofillContext = context(confirmationError, autofillItem);
 const autofillEvent = { target: autofillTarget, isTrusted: true, inputType: 'insertReplacementText' };
 beforeInputBinding(autofillItem, autofillEvent, methods.markPendingMaterialQtyEdit.bind(autofillContext));
 actualUsageInputBinding(autofillItem, autofillEvent, methods.handlePendingMaterialQtyInput.bind(autofillContext));
@@ -120,7 +133,7 @@ assert.equal(validateEstimatedMaterial(autofillItem), false, 'Autofilled manual 
 
 const racedInputItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
 const racedInputTarget = { value: '1', dataset: {} };
-const racedInputContext = context(confirmationError);
+const racedInputContext = context(confirmationError, racedInputItem);
 beforeInputBinding(racedInputItem, { target: racedInputTarget, isTrusted: true, inputType: 'insertText' }, methods.markPendingMaterialQtyEdit.bind(racedInputContext));
 racedInputTarget.value = '2';
 actualUsageInputBinding(racedInputItem, { target: racedInputTarget, isTrusted: true, inputType: 'insertReplacementText' }, methods.handlePendingMaterialQtyInput.bind(racedInputContext));
@@ -130,7 +143,7 @@ assert.equal(validateEstimatedMaterial(racedInputItem), false, 'Stale edit inten
 
 const racedAutofillItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
 const racedAutofillTarget = { value: '1', dataset: {} };
-const racedAutofillContext = context(confirmationError);
+const racedAutofillContext = context(confirmationError, racedAutofillItem);
 beforeInputBinding(racedAutofillItem, { target: racedAutofillTarget, isTrusted: true, inputType: 'insertText' }, methods.markPendingMaterialQtyEdit.bind(racedAutofillContext));
 racedAutofillTarget.value = '2'; // Autofill or a script changes the DOM value without an input event.
 blurBinding(racedAutofillItem, { target: racedAutofillTarget, isTrusted: true, type: 'blur' }, methods.handlePendingMaterialQtyBlur.bind(racedAutofillContext));
@@ -146,8 +159,7 @@ assert.equal(syntheticItem.metadata.material_usage.manual_actual_usage_confirmed
 assert.equal(validateEstimatedMaterial(syntheticItem), false, 'Programmatic input alone cannot pass final assignment validation.');
 
 const keyboardItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
-const keyboardContext = context(confirmationError);
-keyboardContext.__material = keyboardItem;
+const keyboardContext = context(confirmationError, keyboardItem);
 const keyboardTarget = { value: '2', dataset: {}, getBoundingClientRect: () => ({right: 100, left: 0}) };
 keydownBinding(keyboardItem, { target: keyboardTarget, isTrusted: true, key: '2' }, methods.markPendingMaterialQtyKeyEdit.bind(keyboardContext));
 actualUsageInputBinding(keyboardItem, { target: keyboardTarget, isTrusted: true, inputType: '' }, methods.handlePendingMaterialQtyInput.bind(keyboardContext));
@@ -155,8 +167,7 @@ assert.equal(keyboardItem.manual_quantity_confirmed, true, 'A normal trusted key
 assert.equal(validateEstimatedMaterial(keyboardItem), true, 'Keyboard-edited quantity passes final validation.');
 
 const mouseItem = { ...item, qty: 1, manual_quantity_confirmed: false, metadata: {} };
-const mouseContext = context(confirmationError);
-mouseContext.__material = mouseItem;
+const mouseContext = context(confirmationError, mouseItem);
 const mouseTarget = { value: '2', dataset: {}, getBoundingClientRect: () => ({right: 100, left: 0}) };
 pointerdownBinding(mouseItem, { target: mouseTarget, isTrusted: true, pointerType: 'mouse', clientX: 95 }, methods.markPendingMaterialQtyPointerEdit.bind(mouseContext));
 actualUsageInputBinding(mouseItem, { target: mouseTarget, isTrusted: true, inputType: '' }, methods.handlePendingMaterialQtyInput.bind(mouseContext));
@@ -174,7 +185,7 @@ assert.equal(validateEstimatedMaterial(blockedKeyItem), false, 'A no-op keyboard
 item.manual_quantity_confirmed = false;
 item.metadata.material_usage.staff_confirmed = false;
 
-const inputContext = context(confirmationError);
+const inputContext = context(confirmationError, item);
 dispatchActualUsageInput(inputContext, item, '1');
 assert.equal(item.manual_quantity_confirmed, true, 'A valid edited actual quantity confirms usage.');
 assert.equal(item.metadata.material_usage.actual, 1, 'The entered quantity is retained without conversion.');
@@ -223,22 +234,12 @@ const secondMaterial = { ...item, name: 'Length material', item_id: 502, uom: 'f
 const multipleContext = context('');
 dispatchActualUsageInput(multipleContext, firstMaterial, '1');
 const multiplePending = [firstMaterial, secondMaterial];
-assert.equal(validationMethod.call({
-    currentJo: { materials: [], ink_usage: [] }, pendingMaterials: multiplePending, productionErrors: {}, requiresInk: false,
-    posMaterialQuantityError: () => '',
-    isPendingTarpaulinMaterial: () => false,
-    pendingMaterialStockError: () => '',
-}, [], []), false, 'Confirming one row does not confirm another pending material.');
+assert.equal(validationMethod.call(buildValidatorContext(multiplePending, { pendingMaterials: multiplePending }), [], []), false, 'Confirming one row does not confirm another pending material.');
 dispatchSameValueEditWithoutInput(multipleContext, secondMaterial, '1');
 const materialsCopiedForSubmission = [...multiplePending];
 assert.equal(materialsCopiedForSubmission[0], firstMaterial, 'Submission list copy retains the first pending material object.');
 assert.equal(materialsCopiedForSubmission[1], secondMaterial, 'Submission list copy retains the second pending material object.');
-assert.equal(validationMethod.call({
-    currentJo: { materials: [], ink_usage: [] }, pendingMaterials: [], productionErrors: {}, requiresInk: false,
-    posMaterialQuantityError: () => '',
-    isPendingTarpaulinMaterial: () => false,
-    pendingMaterialStockError: () => '',
-}, materialsCopiedForSubmission, []), true, 'Both independently confirmed materials pass the final submission validator.');
+assert.equal(validationMethod.call(buildValidatorContext(materialsCopiedForSubmission), materialsCopiedForSubmission, []), true, 'Both independently confirmed materials pass the final submission validator.');
 
 const recalcMaterial = { ...item, qty: 1, estimated_qty: null, manual_confirmation_required: true, manual_quantity_confirmed: false, actual_usage_overridden: true, usage_method: 'manual', metadata: { material_usage: { actual: 1, staff_confirmed: false, overridden: true } } };
 const manualRecalcContext = {
@@ -299,7 +300,7 @@ assert.equal(acMcFallback.manual_quantity_confirmed, false, 'An unconfigured fal
 assert.equal(validateEstimatedMaterial(acMcFallback), false, 'The final validator blocks an unconfigured fallback until staff confirms actual usage.');
 
 const invalidItem = { ...item, metadata: {}, manual_quantity_confirmed: true };
-const invalidContext = context(confirmationError);
+const invalidContext = context(confirmationError, invalidItem);
 dispatchActualUsageInput(invalidContext, invalidItem, '0');
 assert.equal(invalidItem.manual_quantity_confirmed, false, 'Zero usage cannot confirm a manual quantity.');
 assert.equal(invalidItem.metadata.material_usage.staff_confirmed, false, 'Invalid usage is not marked staff-confirmed.');
@@ -319,20 +320,46 @@ const fractionalFeet = { ...item, uom: 'ft', metadata: {}, manual_quantity_confi
 dispatchActualUsageInput(context(''), fractionalFeet, '1.5');
 assert.equal(fractionalFeet.manual_quantity_confirmed, true, 'Fractional length usage remains valid.');
 
-function validateEstimatedMaterial(material) {
-    const validatorContext = {
+function buildValidatorContext(materials = [], overrides = {}) {
+    const registry = new Map(
+        (Array.isArray(materials) ? materials : [materials])
+            .filter(Boolean)
+            .map((material) => [Number(material.item_id || material.id), material])
+    );
+    return {
         currentJo: { materials: [], ink_usage: [] },
         pendingMaterials: [],
         productionErrors: {},
         productionAssignmentSubmitAttempted: false,
         requiresInk: false,
+        materialCompatibilityContext: {},
+        materialRules: [],
         posMaterialQuantityError: () => '',
+        isPosSetPriceFlow: () => true,
         isPendingTarpaulinMaterial: () => false,
+        isPendingStickerLaminateMaterial: () => false,
         pendingMaterialStockError: () => '',
         platesBlankUsageError: () => '',
         posterPrimaryUsageError: () => '',
+        getInventoryItem(itemId) {
+            const material = registry.get(Number(itemId));
+            if (!material) return null;
+            return {
+                id: material.item_id || material.id,
+                name: material.name,
+                unit_of_measure: material.unit_of_measure || material.uom,
+            };
+        },
+        isValidPosMaterialQuantity(value, itemId) {
+            const inv = this.getInventoryItem(itemId);
+            return !!(inv && materialConsumption.parseMaterialQuantity(value, inv) !== null);
+        },
+        ...overrides,
     };
-    return validationMethod.call(validatorContext, [material], []);
+}
+
+function validateEstimatedMaterial(material) {
+    return validationMethod.call(buildValidatorContext(material), [material], []);
 }
 
 for (const uom of ['pcs', 'pc', 'piece', 'pieces']) {

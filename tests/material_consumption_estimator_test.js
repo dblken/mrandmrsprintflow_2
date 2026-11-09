@@ -33,6 +33,10 @@ for (const uom of ['ft', 'm', 'cm', 'mm', 'l', 'liter', 'ml', 'kg', 'g']) {
     assert.equal(parseMaterialQuantity('0.25', { unit_of_measure: uom, consumption_method: 'dimension_sheet' }), 0.25, `${uom} preserves staff-entered fractions independent of method`);
     assert.equal(parseMaterialQuantity('1.00', { unit_of_measure: uom }), 1, `${uom} accepts whole measured amounts`);
 }
+assert.equal(parseMaterialQuantity('10000', { unit_of_measure: 'sheet' }), 10000, 'Discrete units accept the 10,000 cap');
+assert.equal(parseMaterialQuantity('10001', { unit_of_measure: 'sheet' }), null, 'Discrete units reject above 10,000');
+assert.equal(parseMaterialQuantity('20000000', { unit_of_measure: 'sheet' }), null, 'Very large discrete quantities are rejected');
+assert.equal(parseMaterialQuantity('340.0.00', { unit_of_measure: 'ft' }), null, 'Malformed decimal strings are rejected');
 for (const invalid of ['', '0', '-1', 'NaN', 'Infinity', '1e2', '1.234', '100000000']) {
     assert.equal(parseMaterialQuantity(invalid, { unit_of_measure: 'ft' }), null, `${JSON.stringify(invalid)} is rejected`);
 }

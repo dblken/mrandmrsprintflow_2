@@ -5,6 +5,8 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
     'use strict';
 
+    const MAX_MATERIAL_QUANTITY = 10000;
+
     const WHOLE_UNITS = new Set([
         'pc', 'pcs', 'piece', 'pieces', 'sheet', 'sheets', 'roll', 'rolls',
         'unit', 'units', 'set', 'sets', 'bottle', 'bottles', 'pack', 'packs'
@@ -33,7 +35,7 @@
             : /^(?:0|[1-9][0-9]{0,7})(?:\.[0-9]{1,2})?$/;
         if (!pattern.test(raw)) return null;
         const quantity = Number(raw);
-        if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 99999999.99) return null;
+        if (!Number.isFinite(quantity) || quantity <= 0 || quantity > MAX_MATERIAL_QUANTITY) return null;
         return quantity;
     }
 
@@ -42,5 +44,5 @@
         return { status: 'manual', quantity: null, method: 'manual', reason: 'Staff enters actual usage in the inventory unit.' };
     }
 
-    return { estimate, parseMaterialQuantity };
+    return { estimate, parseMaterialQuantity, MAX_MATERIAL_QUANTITY };
 });
