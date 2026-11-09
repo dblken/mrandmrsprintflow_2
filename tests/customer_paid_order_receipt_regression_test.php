@@ -65,6 +65,20 @@ $assert(
     'A provider payment belonging to another customer does not authorize this receipt.'
 );
 
+$paidServiceOrder = ['order_id' => 28906, 'customer_id' => 25, 'status' => 'Pending', 'payment_status' => 'Paid'];
+$assert(
+    printflow_customer_service_paid_receipt_is_available($paidServiceOrder, $verifiedPayMongo, $receiptItem, true),
+    'A paid service order awaiting production exposes the same payment-verified receipt as ready-made products.'
+);
+$assert(
+    !printflow_customer_service_paid_receipt_is_available($paidServiceOrder, $verifiedPayMongo, $receiptItem, false),
+    'Unpaid service orders do not expose a receipt from the paid-service path.'
+);
+$assert(
+    !printflow_customer_service_paid_receipt_is_available($unpaidOrder, $verifiedPayMongo, $receiptItem, true),
+    'Service orders without confirmed payment remain ineligible even when the helper is invoked.'
+);
+
 $assert(
     printflow_customer_paid_order_waiting_label('Pending', true, true) === 'Paid',
     'paid ready-made product displays only Paid'
@@ -99,6 +113,7 @@ $assert(str_contains($orders, "params.get('receipt_download') === '1'") && str_c
 $assert(str_contains($orders, "window.parent.postMessage({ type: 'printflow-receipt-download', success: true }") && str_contains($payment, "event.source !== receiptDownloadFrame?.contentWindow"), 'download result is reported to the payment page from its own same-origin frame');
 $assert(str_contains($itemsApi, 'WHERE o.order_id = ? AND o.customer_id = ?') && str_contains($itemsApi, "'ii', [\$order_id, \$customer_id]"), 'receipt data API scopes order access to the authenticated customer');
 $assert(str_contains($itemsApi, 'printflow_customer_ready_made_receipt_is_available($order, $provider_payment, $items)'), 'ready-made receipt uses shared payment, item, and failure-status eligibility');
+$assert(str_contains($itemsApi, 'printflow_customer_service_paid_receipt_is_available'), 'paid service orders reuse the shared payment-verified receipt helper');
 $assert(str_contains($itemsApi, '$is_ready_made_product = printflow_is_ready_made_product_order($order);'), 'receipt API uses the same ready-made classifier as the payment page without an extra service-inference veto');
 $assert(str_contains($itemsApi, '$awaiting_fulfillment = false;'), 'customer order details no longer emit an awaiting-fulfillment flag for paid ready-made orders');
 foreach (['order_number', 'quantity', 'unit_price', 'line_total', 'payment', 'method', 'status', 'amount_paid', 'reference'] as $field) {

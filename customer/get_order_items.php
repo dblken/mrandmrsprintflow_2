@@ -1446,7 +1446,9 @@ if ($paid_waiting_label !== '') {
 // for a production status transition.
 $receipt_available = $is_ready_made_product
     ? printflow_customer_ready_made_receipt_is_available($order, $provider_payment, $items)
-    : printflow_customer_receipt_is_available((string)($order['status'] ?? ''), $payment_status);
+    : ($is_service_order
+        ? printflow_customer_service_paid_receipt_is_available($order, $provider_payment, $items, $payment_received)
+        : printflow_customer_receipt_is_available((string)($order['status'] ?? ''), $payment_status));
 $receipt_payload = $receipt_available
     ? customer_receipt_build_payload($order, $items_out, $payment_status)
     : null;
