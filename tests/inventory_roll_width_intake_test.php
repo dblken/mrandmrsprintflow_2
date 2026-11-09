@@ -2,6 +2,24 @@
 require_once __DIR__ . '/../includes/roll_width.php';
 
 $checks = [];
+$savedRoll = ['item_id'=>13,'branch_id'=>1,'width_ft'=>2,'total_length_ft'=>50,'remaining_length_ft'=>50];
+printflow_assert_received_roll_values($savedRoll, 13, 1, printflow_roll_width_to_feet(24, 'in'), 50);
+$checks['saved width and footage reload exactly for a 24-inch receipt'] = true;
+foreach (['width_ft'=>1,'branch_id'=>2,'remaining_length_ft'=>49] as $field=>$badValue) {
+    $badRoll = array_replace($savedRoll, [$field=>$badValue]);
+    try {
+        printflow_assert_received_roll_values($badRoll,13,1,2,50);
+        $checks['reject persisted mismatch for '.$field] = false;
+    } catch (RuntimeException $error) {
+        $checks['reject persisted mismatch for '.$field] = str_contains($error->getMessage(),$field);
+    }
+}
+try {
+    printflow_assert_received_roll_values($savedRoll,13,1,2.5,50);
+    $checks['integer column truncation cannot verify as a valid receipt'] = false;
+} catch (RuntimeException $error) {
+    $checks['integer column truncation cannot verify as a valid receipt'] = true;
+}
 $checks['24 inches normalize to 2 feet'] = abs(printflow_roll_width_to_feet('24', 'in') - 2.0) < 0.000001;
 $checks['2 feet remain 2 feet'] = abs(printflow_roll_width_to_feet('2', 'ft') - 2.0) < 0.000001;
 foreach ([3, 4, 5, 6] as $configuredWidth) {

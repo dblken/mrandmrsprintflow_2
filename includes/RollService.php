@@ -106,16 +106,28 @@ class RollService {
         $sql = "INSERT INTO inv_rolls (item_id, branch_id, roll_code, width_ft, total_length_ft, remaining_length_ft, status, supplier, received_at) 
                 VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?, NOW())";
         
-        $stmt = $conn->prepare($sql);
-        $stmt->bind_param("iisddds", $itemId, $branchId, $rollCode, $widthFt, $totalLength, $totalLength, $supplier);
-        
-        if ($stmt->execute()) {
+        $ownsTransaction = !printflow_db_in_transaction($conn);
+        if ($ownsTransaction && !$conn->begin_transaction()) throw new RuntimeException('Roll receipt transaction could not be started.');
+        try {
+            $stmt = $conn->prepare($sql);
+            if (!$stmt) throw new RuntimeException('Roll receipt could not be prepared.');
+            $stmt->bind_param("iisddds", $itemId, $branchId, $rollCode, $widthFt, $totalLength, $totalLength, $supplier);
+            if (!$stmt->execute()) throw new RuntimeException('Roll receipt could not be saved.');
             $id = $stmt->insert_id;
             $stmt->close();
+            $verify = $conn->prepare('SELECT item_id, branch_id, width_ft, total_length_ft, remaining_length_ft FROM inv_rolls WHERE id = ?');
+            if (!$verify) throw new RuntimeException('Saved roll receipt could not be verified.');
+            $verify->bind_param('i', $id);
+            if (!$verify->execute()) throw new RuntimeException('Saved roll receipt could not be verified.');
+            $saved = $verify->get_result()->fetch_assoc();
+            $verify->close();
+            printflow_assert_received_roll_values($saved ?: [], (int)$itemId, (int)$branchId, $widthFt, (float)$totalLength);
+            if ($ownsTransaction && !$conn->commit()) throw new RuntimeException('Roll receipt could not be committed.');
             return $id;
+        } catch (Throwable $error) {
+            if ($ownsTransaction && printflow_db_in_transaction($conn)) $conn->rollback();
+            throw $error;
         }
-        
-        throw new Exception("Failed to create roll: " . $stmt->error);
     }
 
     /**

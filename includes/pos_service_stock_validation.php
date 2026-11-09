@@ -263,7 +263,9 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
             'ok' => false,
             'reason' => (string)($resolved['reason'] ?? 'insufficient'),
             'selection' => null,
-            'shortage' => [
+            // Keep allocator diagnostics (message, affected rolls, recorded
+            // and matching footage) through the shared modal/cart boundary.
+            'shortage' => array_merge($shortage, [
                 'id' => (int)($shortage['id'] ?? 0),
                 'name' => (string)($shortage['name'] ?? 'Tarpaulin roll'),
                 'uom' => 'Ft',
@@ -273,7 +275,7 @@ function printflow_pos_tarpaulin_selection(array $line, int $branchId, array $us
                 'available_ft' => (float)($shortage['available_ft'] ?? 0),
                 'calculation' => $shortage['calculation'] ?? null,
                 'physical' => true,
-            ],
+            ]),
         ];
     }
     return $resolved;
