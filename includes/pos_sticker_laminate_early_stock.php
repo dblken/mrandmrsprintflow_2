@@ -108,6 +108,53 @@ function printflow_pos_sticker_is_preset_size_select_field(array $row): bool
     return preg_match('/\b(dimensions?|sizes?)\b/', $key . ' ' . $label) === 1;
 }
 
+/** Whether a dimensions select value matches a configured preset (not custom size). */
+function printflow_pos_sticker_value_is_configured_preset(string $value, array $fieldRows): bool
+{
+    $value = trim($value);
+    if ($value === ''
+        || (function_exists('printflow_service_field_is_custom_size_option_value')
+            && printflow_service_field_is_custom_size_option_value($value))) {
+        return false;
+    }
+    foreach ($fieldRows as $row) {
+        if (!printflow_pos_sticker_is_preset_size_select_field($row)) {
+            continue;
+        }
+        $options = $row['_options'] ?? $row['field_options'] ?? [];
+        if (is_string($options)) {
+            $options = json_decode($options, true);
+        }
+        if (!is_array($options)) {
+            continue;
+        }
+        foreach ($options as $option) {
+            $optVal = trim((string)(is_array($option) ? ($option['value'] ?? '') : $option));
+            if ($optVal !== '' && $optVal === $value) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/** Custom size with separate Finish / Sticker Type and width/height fields. */
+function printflow_pos_sticker_separated_custom_size_ready(array $customization): bool
+{
+    $width = printflow_pos_sticker_custom_spec_value($customization, ['dimensions_width', 'width', 'Width']);
+    $height = printflow_pos_sticker_custom_spec_value($customization, ['dimensions_height', 'height', 'Height']);
+    if ($width === '' || $height === '' || !is_numeric($width) || !is_numeric($height)
+        || (float)$width <= 0 || (float)$height <= 0) {
+        $dims = trim((string)($customization['dimensions'] ?? ''));
+        if ($dims === '' || printflow_pos_dimension_pair_from_option($dims) === null) {
+            return false;
+        }
+    }
+    $finish = printflow_pos_sticker_custom_spec_value($customization, ['sticker_custom_finish', 'finish', 'Finish']);
+    $process = printflow_pos_sticker_custom_spec_value($customization, ['sticker_custom_process', 'sticker_type', 'Sticker Type']);
+    return printflow_pos_sticker_laminate_item_for_custom_finish($finish, $process) !== null;
+}
+
 /** True when staff chose Custom Size / Others or the POSTed dimensions sentinel matches. */
 function printflow_pos_sticker_custom_size_active(array $customization, array $fieldRows): bool
 {
@@ -128,9 +175,16 @@ function printflow_pos_sticker_custom_size_active(array $customization, array $f
     $dimensionsValue = printflow_pos_sticker_custom_spec_value($customization, [
         'dimensions', 'Dimensions', 'Dimensions And Finish',
     ]);
-    return $dimensionsValue !== ''
+    if ($dimensionsValue !== ''
         && function_exists('printflow_service_field_is_custom_size_option_value')
-        && printflow_service_field_is_custom_size_option_value($dimensionsValue);
+        && printflow_service_field_is_custom_size_option_value($dimensionsValue)) {
+        return true;
+    }
+    if (printflow_pos_sticker_separated_custom_size_ready($customization)
+        && !printflow_pos_sticker_value_is_configured_preset($dimensionsValue, $fieldRows)) {
+        return true;
+    }
+    return false;
 }
 
 /** Resolve the selected configured sticker option; incomplete form edits stay pending. */

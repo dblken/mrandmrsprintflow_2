@@ -496,6 +496,39 @@ $assert(str_contains($posSource, "stickerSpec(['sticker_custom_finish', 'finish'
     && str_contains($posSource, 'serviceCustomization.dimensions_width')
     && str_contains($posSource, "'dimensions_unit'"),
     'POS stock validation reads the live finish, sticker type, width, height, and unit fields.');
+$overwrittenPayload = [
+    'qty' => 1,
+    'customization' => [
+        'dimensions' => '5x5',
+        'dimensions_width' => '5',
+        'dimensions_height' => '5',
+        'dimensions_unit' => 'ft',
+        'finish' => 'Matte',
+        'sticker_type' => 'Printed',
+        'branch_id' => '1',
+        'quantity' => '1',
+    ],
+];
+$assert(printflow_pos_sticker_custom_size_active($overwrittenPayload['customization'], $liveFields),
+    'Separated finish/type with WxH dimensions value is treated as custom size, not a stale preset.');
+$assert(printflow_pos_sticker_laminate_selection($overwrittenPayload, $liveFields)['item_id'] === 21,
+    'Add-to-order payload with dimensions=5x5 still maps Matte Printed to item 21.');
+$separatedOnly = [
+    'qty' => 2,
+    'customization' => [
+        'dimensions_width' => '3',
+        'dimensions_height' => '4',
+        'dimensions_unit' => 'ft',
+        'finish' => 'Glossy',
+        'sticker_type' => 'Cut Out',
+        'quantity' => '2',
+    ],
+];
+$glossSeparated = printflow_pos_sticker_laminate_selection($separatedOnly, $liveFields);
+$assert($glossSeparated !== null && $glossSeparated['item_id'] === 20 && $glossSeparated['quantity'] === 2,
+    'Width/height without a dimensions sentinel still validates Glossy Cut Out.');
+$assert(str_contains($posSource, 'preserveCustomSizeChoice') && str_contains($posSource, 'Number(serviceId) === 36'),
+    'Add to Order keeps Others/Customize Size on dimensions instead of overwriting with WxH.');
 $assert(str_contains($posSource, 'Number(serviceId) === 36 && issue.message')
     && !str_contains($posSource, 'issue.inventory_discrepancy && issue.message'),
     'Sticker laminate stock warnings show the server message, not a generic 0 ft shortage.');

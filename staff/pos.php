@@ -7013,7 +7013,12 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const widthVal = String(wh.value).trim();
                     const heightVal = String(hh.value).trim();
                     if (fieldKey) {
-                        customization[fieldKey] = widthVal + 'x' + heightVal;
+                        const existing = String(customization[fieldKey] || '').trim();
+                        const preserveCustomSizeChoice = Number(serviceId) === 36
+                            || /^(others|custom\s*size|customize\s*size)$/i.test(existing);
+                        if (!preserveCustomSizeChoice) {
+                            customization[fieldKey] = widthVal + 'x' + heightVal;
+                        }
                         customization[fieldKey + '_width'] = widthVal;
                         customization[fieldKey + '_height'] = heightVal;
                     }
