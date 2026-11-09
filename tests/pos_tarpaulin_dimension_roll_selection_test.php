@@ -100,7 +100,17 @@ $assert(!str_contains($pos, 'Joining Direction')
     'Joining Direction / Allowance remain absent from POS.');
 $assert(str_contains($stock, 'printflow_pos_tarpaulin_selection(')
     && str_contains($stock, 'printflow_tarpaulin_resolve_width_fit(')
-    && str_contains($calculation, 'Tarpaulin roll width needs reconciliation'),
+    && str_contains($calculation, 'Tarpaulin roll widths need reconciliation')
+    && str_contains($calculation, 'usable matching footage for this order'),
     'POS stock validation resolves only equal-or-wider rolls and returns explicit width reconciliation errors.');
+$assert(str_contains($pos, 'tarpaulin roll widths? need reconciliation|recorded open-roll footage')
+    && str_contains($pos, 'if (Number(serviceId) === 40 && issues.length)')
+    && str_contains($pos, 'Tarpaulin stock is available for these dimensions and quantity.'),
+    'Tarpaulin reconciliation details are shown instead of generic zero-stock text, and a successful fresh check gets an availability state.');
+$assert(str_contains($pos, 'requestVersion !== posServiceStockRequestVersion')
+    && str_contains($pos, "body.addEventListener('input'")
+    && str_contains($pos, "body.addEventListener('change'")
+    && str_contains($pos, 'posServiceStockRequestVersion += 1;'),
+    'Dimension/quantity/branch edits schedule fresh checks and invalidate older in-flight results.');
 
 echo "POS Tarpaulin dimension roll selection tests passed.\n";

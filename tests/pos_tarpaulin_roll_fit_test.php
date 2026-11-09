@@ -92,14 +92,35 @@ $assert(!$splitPieceImpossible['ok'] && str_contains((string)$splitPieceImpossib
 $wrongWidth = $resolve([$candidate(13, 3, 1, [30], [1])], 3, 6, 1);
 $assert(!$wrongWidth['ok'] && $wrongWidth['reason'] === 'reconciliation'
     && $wrongWidth['shortage']['required_ft'] === 6.0
-    && str_contains((string)$wrongWidth['shortage']['message'], 'roll #1301'),
+    && str_contains((string)$wrongWidth['shortage']['message'], 'roll #1301')
+    && str_contains((string)$wrongWidth['shortage']['message'], 'Recorded open-roll footage: 30 ft')
+    && str_contains((string)$wrongWidth['shortage']['message'], 'usable matching footage for this order: 0 ft')
+    && str_contains((string)$wrongWidth['shortage']['message'], 'recorded width 1 ft; expected 3 ft; 30 ft remaining'),
     'Invalid/conflicting physical width reports the exact roll for reconciliation, not a false zero-stock shortage.');
 $missingWidth = $candidate(13, 3, 1, [30], [0]);
 $missingWidth['roll_width_issues'] = [['roll_id' => 1301, 'width_ft' => 'missing/invalid', 'item_name' => $missingWidth['name']]];
 $missingWidthResult = $resolve([$missingWidth], 2, 3, 100);
 $assert(!$missingWidthResult['ok'] && $missingWidthResult['reason'] === 'reconciliation'
-    && $missingWidthResult['shortage']['required_ft'] === 200.0,
+    && $missingWidthResult['shortage']['required_ft'] === 200.0
+    && $missingWidthResult['shortage']['recorded_open_ft'] === 30.0,
     'Missing roll width fails closed while preserving independently calculated demand.');
+
+$liveLikeCabuyao = [
+    $candidate(13, 3, 1, [53.6], [1]),
+    $candidate(14, 4, 1, [45.1], [1]),
+    $candidate(15, 5, 1, [50.1], [1]),
+    $candidate(16, 6, 1, [50.0], [1]),
+];
+$liveLikeResult = $resolve($liveLikeCabuyao, 2, 2, 100);
+$assert(!$liveLikeResult['ok'] && $liveLikeResult['reason'] === 'reconciliation'
+    && $liveLikeResult['shortage']['required_ft'] === 200.0
+    && abs($liveLikeResult['shortage']['recorded_open_ft'] - 198.8) < 0.000001
+    && $liveLikeResult['shortage']['usable_matching_ft'] === 0.0
+    && str_contains($liveLikeResult['shortage']['message'], 'roll #1301')
+    && str_contains($liveLikeResult['shortage']['message'], 'roll #1401')
+    && str_contains($liveLikeResult['shortage']['message'], 'roll #1501')
+    && str_contains($liveLikeResult['shortage']['message'], 'roll #1601'),
+    'Live-like branch stock with 1 ft saved widths reports 198.8 ft recorded, zero usable footage, 200 ft demand, and every affected roll.');
 
 $branchOne = $candidate(13, 3, 1, [5]);
 $branchOne['open_rolls'][] = ['id' => 1399, 'branch_id' => 2, 'status' => 'OPEN', 'width_ft' => 3, 'remaining_length_ft' => 100];
@@ -141,6 +162,10 @@ $assert(str_contains($checkout, 'printflow_pos_validate_service_stock(')
 $assert(str_contains($pos, "body.addEventListener('input'") && str_contains($pos, "body.addEventListener('change'")
     && str_contains($pos, 'posValidateServiceStockNow(serviceId, quantity ? quantity.value : \'\')'),
     'Dimension, quantity, layout, and branch changes trigger a fresh modal check.');
+$assert(str_contains($pos, 'const tarpaulinDimensionsReady = tarpaulinEarlyStock')
+    && str_contains($pos, '!(tarpaulinEarlyStock && tarpaulinDimensionsReady)')
+    && str_contains($pos, 'Number(serviceCustomization.branch_id || 0) > 0'),
+    'Tarpaulin early stock checks run as soon as dimensions, quantity, and branch are known without waiting for unrelated required fields.');
 $assert(str_contains($jobService, 'printflow_tarpaulin_saved_roll_fit_selection_for_job(')
     && str_contains($jobService, 'RollService::deductFromValidatedAllocation(')
     && str_contains($rollService, 'id IN ({$placeholders})')

@@ -80,6 +80,9 @@ function printflow_pos_tarpaulin_candidates(int $branchId): array
                     'roll_id' => (int)($roll['id'] ?? 0),
                     'width_ft' => $physicalWidth > 0 ? $physicalWidth : 'missing/invalid',
                     'expected_width_ft' => $nominalWidth,
+                    'total_length_ft' => max(0.0, (float)($roll['total_length_ft'] ?? 0)),
+                    'remaining_length_ft' => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)),
+                    'branch_id' => (int)($roll['branch_id'] ?? 0),
                     'item_name' => (string)($row['name'] ?? 'Tarpaulin roll'),
                 ];
                 continue;

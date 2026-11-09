@@ -351,39 +351,92 @@ function printflow_tarpaulin_resolve_width_fit(array $candidates, $width, $heigh
     // the stock query returns rolls or the allocator can find a feasible set.
     $demandPlan = printflow_tarpaulin_unallocated_demand_plan($w, $h, $q, $candidates);
     $reconciliation = [];
+    $recordedRolls = [];
+    $usableMatchingFt = 0.0;
     foreach ($candidates as $candidate) {
-        if (!is_array($candidate) || $requestedBranchId <= 0 || (int)($candidate['branch_id'] ?? 0) !== $requestedBranchId) continue;
-        foreach ((array)($candidate['roll_width_issues'] ?? []) as $issue) {
-            if (is_array($issue)) $reconciliation[] = $issue + ['item_id' => (int)($candidate['id'] ?? 0), 'item_name' => (string)($candidate['name'] ?? 'Tarpaulin')];
-        }
+        if (!is_array($candidate) || $requestedBranchId <= 0
+            || (int)($candidate['branch_id'] ?? 0) !== $requestedBranchId
+            || strtoupper(trim((string)($candidate['status'] ?? ''))) !== 'ACTIVE') continue;
+        $itemId = (int)($candidate['id'] ?? 0);
         $expectedWidth = printflow_tarpaulin_parse_nominal_width($candidate);
-        if ($expectedWidth <= 0) continue;
+        $matchingRolls = [];
         foreach ((array)($candidate['open_rolls'] ?? []) as $roll) {
             if (!is_array($roll) || strtoupper(trim((string)($roll['status'] ?? 'OPEN'))) !== 'OPEN'
-                || (float)($roll['remaining_length_ft'] ?? 0) <= 0
-                || (int)($roll['branch_id'] ?? 0) !== $requestedBranchId) continue;
+                || (int)($roll['branch_id'] ?? 0) !== $requestedBranchId
+                || (float)($roll['remaining_length_ft'] ?? 0) <= 0) continue;
+            $rollId = (int)($roll['id'] ?? 0);
+            if ($rollId > 0) $recordedRolls[$rollId] = max(0.0, (float)($roll['remaining_length_ft'] ?? 0));
             $rawWidth = $roll['width_ft'] ?? null;
             $physicalWidth = is_numeric($rawWidth) ? (float)$rawWidth : 0.0;
-            if (!is_finite($physicalWidth) || $physicalWidth <= 0 || abs($physicalWidth - $expectedWidth) > 0.01) {
-                $reconciliation[] = ['roll_id' => (int)($roll['id'] ?? 0),
+            if (!is_finite($physicalWidth) || $physicalWidth <= 0 || $expectedWidth <= 0
+                || abs($physicalWidth - $expectedWidth) > 0.01) {
+                $reconciliation[$itemId . ':' . $rollId] = [
+                    'roll_id' => $rollId,
                     'width_ft' => $physicalWidth > 0 ? $physicalWidth : 'missing/invalid',
                     'expected_width_ft' => $expectedWidth,
-                    'item_name' => (string)($candidate['name'] ?? 'Tarpaulin roll')];
+                    'remaining_length_ft' => max(0.0, (float)($roll['remaining_length_ft'] ?? 0)),
+                    'item_id' => $itemId,
+                    'item_name' => (string)($candidate['name'] ?? 'Tarpaulin roll'),
+                ];
+                continue;
+            }
+            try { printflow_tarpaulin_width_fit_plan($w, $h, $q, $expectedWidth); }
+            catch (InvalidArgumentException $error) { continue; }
+            $matchingRolls[] = $roll;
+        }
+        foreach ((array)($candidate['roll_width_issues'] ?? []) as $issue) {
+            if (!is_array($issue)) continue;
+            $issue += ['item_id' => $itemId, 'item_name' => (string)($candidate['name'] ?? 'Tarpaulin')];
+            $rollId = (int)($issue['roll_id'] ?? 0);
+            $issueKey = $itemId . ':' . ($rollId > 0 ? $rollId : md5(json_encode($issue) ?: 'issue'));
+            $reconciliation[$issueKey] = $issue;
+            if ($rollId > 0 && !array_key_exists($rollId, $recordedRolls)) {
+                $recordedRolls[$rollId] = max(0.0, (float)($issue['remaining_length_ft'] ?? 0));
             }
         }
+        if ($expectedWidth <= 0) continue;
+        // Report usable footage for the requested dimensions after accounting
+        // for earlier lines in this cart, using the same branch-scoped FIFO
+        // consumption convention as the allocator.
+        $rollsForItem = $matchingRolls;
+        $explicitByRoll = (array)($usedByItemRoll[$itemId] ?? []);
+        foreach ($rollsForItem as &$roll) {
+            $id = (int)($roll['id'] ?? 0);
+            $roll['remaining_length_ft'] = max(0.0, (float)$roll['remaining_length_ft'] - max(0.0, (float)($explicitByRoll[$id] ?? 0)));
+        }
+        unset($roll);
+        $explicitUsed = array_sum(array_map('floatval', $explicitByRoll));
+        $legacyDemand = max(0.0, (float)($usedByItemDemand[$itemId] ?? 0) - $explicitUsed);
+        foreach ($rollsForItem as &$roll) {
+            $fifoUse = min((float)$roll['remaining_length_ft'], $legacyDemand);
+            $roll['remaining_length_ft'] = max(0.0, (float)$roll['remaining_length_ft'] - $fifoUse);
+            $legacyDemand -= $fifoUse;
+        }
+        unset($roll);
+        $usableMatchingFt += array_sum(array_map(static fn(array $roll): float => max(0.0, (float)$roll['remaining_length_ft']), $rollsForItem));
     }
     if ($reconciliation !== []) {
         $labels = array_map(static function (array $issue): string {
             $id = (int)($issue['roll_id'] ?? 0);
-            $width = trim((string)($issue['width_ft'] ?? 'missing'));
+            $widthValue = $issue['width_ft'] ?? 'missing';
+            $width = is_numeric($widthValue) ? rtrim(rtrim(number_format((float)$widthValue, 3, '.', ''), '0'), '.') : (string)$widthValue;
             $item = trim((string)($issue['item_name'] ?? 'Tarpaulin roll'));
-            return $item . ' roll #' . $id . ' (' . $width . ' ft recorded)';
-        }, $reconciliation);
+            $remaining = max(0.0, (float)($issue['remaining_length_ft'] ?? 0));
+            $expected = max(0.0, (float)($issue['expected_width_ft'] ?? 0));
+            return $item . ' roll #' . $id . ' (recorded width ' . $width . ' ft; expected ' . $expected
+                . ' ft; ' . rtrim(rtrim(number_format($remaining, 3, '.', ''), '0'), '.') . ' ft remaining)';
+        }, array_values($reconciliation));
+        $recordedFt = array_sum($recordedRolls);
+        $formatFt = static fn(float $value): string => rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
         return ['ok' => false, 'reason' => 'reconciliation', 'selection' => null, 'shortage' => [
-            'message' => 'Tarpaulin roll width needs reconciliation: ' . implode(', ', $labels) . '. Ask an Admin to verify the physical roll widths.',
-            'roll_width_issues' => $reconciliation,
+            'message' => 'Tarpaulin roll widths need reconciliation. Recorded open-roll footage: ' . $formatFt($recordedFt)
+                . ' ft; usable matching footage for this order: ' . $formatFt($usableMatchingFt) . ' ft. Affected rolls: '
+                . implode(', ', $labels) . '. Ask an Admin to verify the physical roll widths.',
+            'roll_width_issues' => array_values($reconciliation),
             'required_ft' => (float)$demandPlan['required_linear_ft'],
-            'available_ft' => 0.0,
+            'recorded_open_ft' => $recordedFt,
+            'usable_matching_ft' => $usableMatchingFt,
+            'available_ft' => $usableMatchingFt,
             'calculation' => $demandPlan,
         ]];
     }

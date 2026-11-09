@@ -5779,7 +5779,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 // stock/roll availability failures here; ordinary precheck text
                 // belongs to field validation. Joining direction/allowance are
                 // no longer collected on new POS Tarpaulin orders.
-                if (/no active tarpaulin roll width can fit|tarpaulin roll.*(?:no longer active|no longer available)|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
+                if (/tarpaulin roll widths? need reconciliation|recorded open-roll footage|no active (?:configured )?tarpaulin roll width can (?:fit|cover)|tarpaulin roll.*(?:no longer active|no longer available)|cannot be cut as continuous pieces from the available open rolls/i.test(text)) {
                     return text;
                 }
                 return '';
@@ -6046,6 +6046,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 && Number(serviceCustomization.width) > 0
                 && Number(serviceCustomization.height) > 0
                 && ['ft', 'in', 'cm', 'mm'].includes(String(serviceCustomization.pos_material_dimension_unit || '').toLowerCase());
+            const tarpaulinEarlyStock = Number(serviceId) === 40;
+            const tarpaulinDimensionsReady = tarpaulinEarlyStock
+                && Number.isFinite(Number(serviceCustomization.width))
+                && Number(serviceCustomization.width) > 0 && Number(serviceCustomization.width) <= 100
+                && Number.isFinite(Number(serviceCustomization.height))
+                && Number(serviceCustomization.height) > 0 && Number(serviceCustomization.height) <= 100
+                && ['ft', 'feet', 'foot'].includes(String(serviceCustomization.pos_material_dimension_unit || '').toLowerCase())
+                && Number(serviceCustomization.branch_id || 0) > 0;
             const stickerLaminateReady = Number(serviceId) === 36
                 && Object.values(serviceCustomization).some(value => {
                     const selected = String(value || '').trim();
@@ -6074,6 +6082,7 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (typeof validateServiceOrderForm === 'function' && !validateServiceOrderForm().valid
                 && Number(serviceId) !== 63
                 && !(paperEarlyStock && paperDimsReady)
+                && !(tarpaulinEarlyStock && tarpaulinDimensionsReady)
                 && !stickerLaminateReady
                 && !plateTypeSelected
                 && !sintraThicknessSelected) {
@@ -6085,11 +6094,8 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                 posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId) || message);
                 return { valid: false, message };
             }
-            if (Number(serviceId) === 40) {
-                const width = Number(serviceCustomization.width);
-                const height = Number(serviceCustomization.height);
-                const validDim = (value) => Number.isFinite(value) && value > 0 && value <= 100;
-                if (!validDim(width) || !validDim(height)) {
+            if (tarpaulinEarlyStock) {
+                if (!tarpaulinDimensionsReady) {
                     const message = 'Select a valid Dimensions option before adding Tarpaulin.';
                     posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
@@ -6142,6 +6148,16 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     return { valid: true, tracked: false };
                 }
                 const issues = Array.isArray(validation.issues) ? validation.issues : [];
+                if (Number(serviceId) === 40 && issues.length) {
+                    const issue = issues[0] || {};
+                    if (issue.message) {
+                        const message = posServiceStockDisplayMessage(String(issue.message), serviceId);
+                        if (message) {
+                            posSetServiceStockState(true, '', message);
+                            return { valid: false, message };
+                        }
+                    }
+                }
                 if (Number(serviceId) === 71 && sintraThicknessSelected) {
                     const sintraMaterial = materials.find(row => Number(row && row.item_id) === sintraSelectedItemId) || null;
                     const available = Number(sintraMaterial && sintraMaterial.available);
@@ -6273,6 +6289,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
                     const message = `Insufficient ${issue.name || 'selected material'} stock. Available: ${formatQty(issue.available)} ${issue.uom || 'units'}. Required: ${formatQty(issue.required)} ${issue.uom || 'units'}.`;
                     posSetServiceStockState(true, '', posServiceStockDisplayMessage(message, serviceId));
                     return { valid: false, message };
+                }
+                if (Number(serviceId) === 40) {
+                    posSetServiceStockState(false, 'Tarpaulin stock is available for these dimensions and quantity.', '');
+                    return { valid: true, tracked: true };
                 }
                 posSetServiceStockState(false, '', '');
                 return { valid: true, tracked: true };
