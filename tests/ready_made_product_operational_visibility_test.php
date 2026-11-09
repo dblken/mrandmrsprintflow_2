@@ -32,10 +32,12 @@ $assert(strpos($helpers, "return 'NOT (' . printflow_expired_product_order_overd
 
 $dbNow = new DateTimeImmutable('2026-11-02 12:00:00', new DateTimeZone('Asia/Manila'));
 $boundary = $dbNow->modify('-24 hours');
-$isDue = static fn(DateTimeImmutable $anchor): bool => $anchor < $boundary;
+$isDue = static fn(DateTimeImmutable $anchor): bool => $anchor <= $boundary;
 $assert(!$isDue($dbNow->modify('-12 hours')), 'unpaid ready-made younger than 24 hours is not due');
 $assert($isDue($boundary->modify('-1 second')), 'unpaid ready-made older than 24 hours is due');
-$assert(!$isDue($boundary), 'exactly 24 hours old remains visible until strictly older');
+$assert($isDue($boundary), 'unpaid ready-made exactly 24 hours old is due');
+$assert(strpos($helpers, 'latestProviderAbsent') === false, 'Pending rows with failed/expired provider ledger still qualify for stale-unpaid hide');
+$assert(strpos($helpers, 'printflow_ready_made_product_stale_unpaid_fallback_hidden_sql') !== false, 'provider-schema fallback still hides stale ready-made Pending rows');
 
 $staffReports = file_get_contents($root . '/staff/reports.php');
 $dashboardQueries = file_get_contents($root . '/includes/staff_dashboard_queries.php');

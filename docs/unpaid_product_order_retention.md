@@ -22,9 +22,9 @@ retained as records and are not themselves deleted by this cleanup.
 
 ## Clock and timestamps
 
-Age comparisons use MySQL `NOW()` and a strict `< DATE_SUB(..., INTERVAL 24 HOUR)`
-condition: an order is retained at exactly 24 hours and becomes eligible after
-it is older than 24 hours. The
+Age comparisons use MySQL `NOW()` and `<= DATE_SUB(..., INTERVAL 24 HOUR)`:
+an order becomes eligible once it has been Pending/Awaiting Payment for 24
+hours or longer (measured from `orders.order_date`). The
 application DB connection sets the MySQL session timezone to `+08:00`
 (Asia/Manila). Awaiting Payment age is measured from `orders.order_date`,
 which online order creation writes with `NOW()`. Expired age uses the payment

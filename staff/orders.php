@@ -148,7 +148,7 @@ $date_to_filter        = $_GET['date_to']   ?? '';
 $customer_filter       = $_GET['customer']  ?? '';
 $sort_by               = $_GET['sort']           ?? 'newest';
 $display_status_filter = strtoupper(trim((string)($_GET['display_status'] ?? '')));
-$valid_display_status_filters = ['PAID', 'EXPIRED', 'COMPLETED'];
+$valid_display_status_filters = ['COMPLETED'];
 if (!in_array($display_status_filter, $valid_display_status_filters, true)) {
     $display_status_filter = '';
 }
@@ -3039,7 +3039,7 @@ $page_title = 'Product Orders - PrintFlow';
                                         </div>
                                         <input type="hidden" id="fp_display_status" value="<?php echo htmlspecialchars($display_status_filter); ?>">
                                         <div style="display:grid; gap:6px;">
-                                            <?php foreach (['PAID' => 'Paid', 'EXPIRED' => 'Expired', 'COMPLETED' => 'Completed'] as $dsKey => $dsLabel): ?>
+                                            <?php foreach (['COMPLETED' => 'Completed only'] as $dsKey => $dsLabel): ?>
                                             <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#374151;cursor:pointer;">
                                                 <input type="radio" name="fp_display_status_radio" value="<?php echo $dsKey; ?>" <?php echo $display_status_filter === $dsKey ? 'checked' : ''; ?> @change="setDisplayStatusFilter('<?php echo $dsKey; ?>')">
                                                 <?php echo htmlspecialchars($dsLabel); ?>
