@@ -347,6 +347,7 @@ $online_closed_count = 0;
         .pf-orders-urgent-expand-row td {
             background: #fffbeb;
             border-bottom: 1px solid #fde68a;
+            text-align: center;
         }
 
         .pf-urgent-expand-btn {
@@ -4381,6 +4382,7 @@ window.pfServiceFieldCatalog = (() => {
             itemsPerPage: 10,
             urgentOrdersPreviewLimit: 3,
             urgentOrdersExpanded: false,
+            urgentFocusSortActive: false,
             orders: [],
             statusOverrides: {},
             isPosSimplifiedView: <?php echo $isPosCustomizationView ? 'true' : 'false'; ?>,
@@ -6514,6 +6516,17 @@ window.pfServiceFieldCatalog = (() => {
             getPriorityRelatedFields(row) {
                 const related = row && row.priority_request_related;
                 return related && typeof related === 'object' ? related : {};
+            },
+            orderNeededDateTimestamp(row) {
+                if (!row) return 0;
+                const raw = String(row.needed_date || row.due_date || '').trim();
+                if (!raw) return 0;
+                if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+                    const stamp = Date.parse(raw.slice(0, 10));
+                    return Number.isNaN(stamp) ? 0 : stamp;
+                }
+                const stamp = Date.parse(raw);
+                return Number.isNaN(stamp) ? 0 : stamp;
             },
             formatOrderNeededDate(row, forTitle = false) {
                 if (!row) return forTitle ? '' : '—';
@@ -9538,8 +9551,19 @@ window.pfServiceFieldCatalog = (() => {
                 this.$watch('dateFilter', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('customDateFrom', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
                 this.$watch('customDateTo', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
-                this.$watch('sortOrder', () => { this.currentPage = 1; this.scheduleFilterCoverage(); });
-                this.$watch('priorityFilter', () => { this.urgentOrdersExpanded = false; this.currentPage = 1; this.scheduleFilterCoverage(); });
+                this.$watch('sortOrder', () => {
+                    this.urgentFocusSortActive = false;
+                    this.currentPage = 1;
+                    this.scheduleFilterCoverage();
+                });
+                this.$watch('priorityFilter', () => {
+                    if (this.priorityFilter !== 'URGENT') {
+                        this.urgentFocusSortActive = false;
+                        this.urgentOrdersExpanded = false;
+                    }
+                    this.currentPage = 1;
+                    this.scheduleFilterCoverage();
+                });
                 this.$watch('showDetailsModal', (isOpen) => {
                     if (!isOpen) this.clearDeepLinkParams();
                 });
@@ -10435,6 +10459,17 @@ window.pfServiceFieldCatalog = (() => {
                 };
 
                 const sorted = filtered.sort(compareRows);
+                if (this.urgentFocusSortActive && this.priorityFilter === 'URGENT') {
+                    sorted.sort((a, b) => {
+                        const tsA = this.orderNeededDateTimestamp(a);
+                        const tsB = this.orderNeededDateTimestamp(b);
+                        const safeA = tsA > 0 ? tsA : Number.POSITIVE_INFINITY;
+                        const safeB = tsB > 0 ? tsB : Number.POSITIVE_INFINITY;
+                        if (safeA !== safeB) return safeA - safeB;
+                        return compareRows(a, b);
+                    });
+                    return sorted;
+                }
                 if (this.activeStatus !== 'ALL') {
                     return sorted;
                 }
@@ -10767,10 +10802,13 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             navigateFromKpi(target) {
-                this.priorityFilter = 'ALL';
                 if (target === 'URGENT') {
-                    this.activeStatus = 'ALL';
-                } else if (target === 'INQUIRY') {
+                    this.focusUrgentOrders();
+                    return;
+                }
+                this.priorityFilter = 'ALL';
+                this.urgentFocusSortActive = false;
+                if (target === 'INQUIRY') {
                     this.activeStatus = 'INQUIRY';
                 } else if (target === 'PRODUCTION') {
                     this.activeStatus = 'PRODUCTION';
@@ -10786,7 +10824,23 @@ window.pfServiceFieldCatalog = (() => {
             },
 
             focusUrgentOrders() {
-                this.navigateFromKpi('URGENT');
+                this.activeStatus = 'ALL';
+                this.priorityFilter = 'URGENT';
+                this.urgentFocusSortActive = true;
+                this.urgentOrdersExpanded = true;
+                this.currentPage = 1;
+                this.scheduleFilterCoverage();
+                this.$nextTick(() => {
+                    const listCard = document.querySelector('.pf-customizations-table-card');
+                    if (listCard && typeof listCard.scrollIntoView === 'function') {
+                        listCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                    const urgentHeading = document.querySelector('.pf-orders-section-label--urgent')
+                        || document.querySelector('.customizations-mobile-section-label');
+                    if (urgentHeading && typeof urgentHeading.scrollIntoView === 'function') {
+                        urgentHeading.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                });
             },
 
             async viewDetails(id, orderType = 'JOB', deepLinkHints = null) {
