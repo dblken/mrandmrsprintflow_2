@@ -377,48 +377,59 @@ class RollService {
         }
     }
 
-    /** Deduct actual Tarpaulin usage only from the physical rolls in its validated POS plan. */
+    /** Deduct saved POS roll footage for Tarpaulin or Sticker/Decals laminate allocations only. */
     public static function deductFromValidatedAllocation($itemId, array $allocationPlan, $actualLength, $refType = 'JOB_ORDER', $refId = null, $notes = '', $branchId = null, $transactionDate = null) {
         global $conn;
         require_once __DIR__ . '/InventoryManager.php';
+        require_once __DIR__ . '/pos_sticker_laminate_early_stock.php';
         $itemId = (int)$itemId;
         $branchId = $branchId !== null ? (int)$branchId : InventoryManager::getCurrentBranchId();
         $actualLength = (float)$actualLength;
         $entries = array_values((array)$allocationPlan);
+        $isStickerLaminate = printflow_pos_sticker_laminate_is_mapped_inventory_item($itemId);
+        $materialLabel = $isStickerLaminate ? 'sticker laminate' : 'Tarpaulin';
         if ($itemId <= 0 || $branchId <= 0 || !is_finite($actualLength) || $actualLength <= 0 || $entries === []) {
-            throw new InvalidArgumentException('A valid Tarpaulin item, branch, usage, and validated roll allocation are required.');
+            throw new InvalidArgumentException('A valid ' . $materialLabel . ' item, branch, usage, and validated roll allocation are required.');
         }
         $plannedByRoll = [];
         foreach ($entries as $entry) {
             $rollId = (int)($entry['roll_id'] ?? 0);
             $length = (float)($entry['length_ft'] ?? 0);
             if ($rollId <= 0 || !is_finite($length) || $length <= 0 || isset($plannedByRoll[$rollId])) {
-                throw new RuntimeException('The saved Tarpaulin roll allocation is invalid or duplicated.');
+                throw new RuntimeException('The saved ' . ($isStickerLaminate ? 'sticker laminate' : 'Tarpaulin') . ' roll allocation is invalid or duplicated.');
             }
             $plannedByRoll[$rollId] = ['length_ft' => $length, 'roll_code' => (string)($entry['roll_code'] ?? ('Roll #' . $rollId)), 'roll_width_ft' => (float)($entry['roll_width_ft'] ?? 0)];
         }
         $plannedTotal = array_sum(array_column($plannedByRoll, 'length_ft'));
         if ($actualLength > $plannedTotal + 0.001) {
-            throw new RuntimeException('Actual Tarpaulin usage exceeds the saved POS roll allocation. Revalidate the job before deduction.');
+            throw new RuntimeException('Actual ' . $materialLabel . ' usage exceeds the saved POS roll allocation. Revalidate the job before deduction.');
         }
 
-        // Tarpaulin fit was planned using the linked inventory item's
-        // configured width. Re-read that active item as the authoritative
-        // width source; inv_rolls.width_ft is not a Tarpaulin fit input.
+        // Fit was planned using the linked inventory item's configured width.
+        // Re-read that active item as the authoritative width source.
         $itemRows = db_query("SELECT id, name, status, track_by_roll, unit_of_measure, material_width, material_dimension_unit, category_id FROM inv_items WHERE id = ? LIMIT 1", 'i', [$itemId]);
         if (!is_array($itemRows) || count($itemRows) !== 1
             || strtoupper(trim((string)($itemRows[0]['status'] ?? ''))) !== 'ACTIVE') {
-            throw new RuntimeException('The configured Tarpaulin inventory item is no longer active.');
+            throw new RuntimeException('The configured ' . ($isStickerLaminate ? 'sticker laminate' : 'Tarpaulin') . ' inventory item is no longer active.');
         }
         $item = $itemRows[0];
         $categoryRows = db_query('SELECT name FROM inv_categories WHERE id = ? LIMIT 1', 'i', [(int)($item['category_id'] ?? 0)]) ?: [];
         $item['category_name'] = (string)($categoryRows[0]['name'] ?? '');
-        require_once __DIR__ . '/tarpaulin_material_calculation.php';
-        $configuredWidthFt = printflow_tarpaulin_parse_nominal_width($item);
-        if ($configuredWidthFt <= 0) throw new RuntimeException('The Tarpaulin item has no valid configured width.');
+        if ($isStickerLaminate) {
+            $configuredWidthFt = printflow_pos_sticker_laminate_roll_width_ft($itemId, $item);
+        } else {
+            require_once __DIR__ . '/tarpaulin_material_calculation.php';
+            $configuredWidthFt = printflow_tarpaulin_parse_nominal_width($item);
+            if ($configuredWidthFt <= 0) {
+                throw new RuntimeException('The Tarpaulin item has no valid configured width.');
+            }
+        }
         foreach ($plannedByRoll as $rollPlan) {
             if (abs((float)$rollPlan['roll_width_ft'] - $configuredWidthFt) > 0.01) {
-                throw new RuntimeException('The saved Tarpaulin allocation width no longer matches the active item configuration. Revalidate the job.');
+                $widthMsg = $isStickerLaminate
+                    ? 'The saved sticker laminate allocation width no longer matches the active item configuration. Revalidate the job.'
+                    : 'The saved Tarpaulin allocation width no longer matches the active item configuration. Revalidate the job.';
+                throw new RuntimeException($widthMsg);
             }
         }
 
@@ -441,6 +452,25 @@ class RollService {
                 $roll = $byId[$rollId];
                 // Width is item-configured for Tarpaulin. This row remains
                 // authoritative for identity, branch, OPEN status and footage.
+            }
+            if ($isStickerLaminate) {
+                $widthMismatches = printflow_pos_sticker_laminate_roll_width_mismatches($rolls, $configuredWidthFt);
+                foreach ($widthMismatches as $mismatch) {
+                    $mismatchId = (int)($mismatch['id'] ?? 0);
+                    if ($mismatchId <= 0 || !isset($plannedByRoll[$mismatchId])) {
+                        continue;
+                    }
+                    $format = static fn(float $value): string => rtrim(rtrim(number_format($value, 3, '.', ''), '0'), '.');
+                    throw new RuntimeException(
+                        'Roll #' . $mismatchId . ' still records '
+                        . $format((float)($mismatch['width_ft'] ?? 0))
+                        . ' ft width but '
+                        . trim((string)($item['name'] ?? 'laminate'))
+                        . ' is configured as '
+                        . $format($configuredWidthFt)
+                        . ' ft. Correct the roll width in Roll Tracking after physical verification before completing this job.'
+                    );
+                }
             }
 
             if ($transactionDate === null || $transactionDate === '') {
@@ -468,8 +498,9 @@ class RollService {
                 $update->bind_param('dssii', $newRemaining, $newStatus, $finishedAt, $rollId, $itemId);
                 if (!$update->execute() || $update->affected_rows !== 1) { $update->close(); throw new RuntimeException('Unable to update a roll in the validated Tarpaulin allocation.'); }
                 $update->close();
+                $defaultUsageNote = $isStickerLaminate ? 'Sticker laminate usage' : 'Tarpaulin usage';
                 InventoryManager::recordTransaction($itemId, 'OUT', $deduct, 'ft', $refType, $refId, $rollId,
-                    ($notes !== '' ? $notes : 'Tarpaulin usage') . ' (Roll: ' . (string)($roll['roll_code'] ?? ('Roll #' . $rollId)) . ')',
+                    ($notes !== '' ? $notes : $defaultUsageNote) . ' (Roll: ' . (string)($roll['roll_code'] ?? ('Roll #' . $rollId)) . ')',
                     null, $transactionDate, $branchId);
                 $deductions[] = ['roll_id' => $rollId, 'roll_code' => (string)($roll['roll_code'] ?? ('Roll #' . $rollId)),
                     'deducted' => $deduct, 'was' => (float)$roll['remaining_length_ft'], 'now' => $newRemaining, 'status' => $newStatus];

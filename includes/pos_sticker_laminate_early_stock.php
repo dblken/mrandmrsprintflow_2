@@ -13,6 +13,12 @@ function printflow_pos_sticker_laminate_item_for_finish(string $finish): ?int
     return null;
 }
 
+/** Matte/Gloss laminate SKUs reserved for Sticker/Decals (not Tarpaulin). */
+function printflow_pos_sticker_laminate_is_mapped_inventory_item(int $itemId): bool
+{
+    return in_array($itemId, [20, 21], true);
+}
+
 /** Resolve sticker line quantity from the cart row or embedded customization fields. */
 function printflow_pos_sticker_laminate_line_quantity(array $line): int
 {

@@ -394,10 +394,12 @@ $assert(str_contains($assignment, 'persistedPosStickerLaminateSelection')
     && str_contains($assignment, 'maybeAutoSelectStickerLaminate')
     && str_contains($assignment, 'manual_quantity_confirmed: quantityConfirmed'),
     'Production Assignment auto-fills the saved laminate footage and treats it as confirmed.');
+$rollService = (string)file_get_contents(dirname(__DIR__) . '/includes/RollService.php');
 $assert(str_contains($jobApi, 'printflow_pos_sticker_saved_laminate_selection_for_job')
     && str_contains($jobs, 'deductFromValidatedAllocation')
-    && str_contains($jobs, '$stickerLaminateDeducted[$itemId] = true'),
-    'Completion deducts the saved sticker roll rows once and does not repeat that deduction.');
+    && str_contains($jobs, '$stickerLaminateDeducted[$itemId] = true')
+    && str_contains($rollService, 'printflow_pos_sticker_laminate_roll_width_ft($itemId, $item)'),
+    'Completion deducts the saved sticker roll rows once using sticker width resolution.');
 
 $liveFields = [[
     'field_key' => 'dimensions',
