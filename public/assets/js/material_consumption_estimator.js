@@ -6,6 +6,7 @@
     'use strict';
 
     const MAX_MATERIAL_QUANTITY = 10000;
+    const MAX_MATERIAL_QUANTITY_MESSAGE = 'Maximum quantity is 10,000.';
 
     const WHOLE_UNITS = new Set([
         'pc', 'pcs', 'piece', 'pieces', 'sheet', 'sheets', 'roll', 'rolls',
@@ -44,5 +45,5 @@
         return { status: 'manual', quantity: null, method: 'manual', reason: 'Staff enters actual usage in the inventory unit.' };
     }
 
-    return { estimate, parseMaterialQuantity, MAX_MATERIAL_QUANTITY };
+    return { estimate, parseMaterialQuantity, MAX_MATERIAL_QUANTITY, MAX_MATERIAL_QUANTITY_MESSAGE };
 });

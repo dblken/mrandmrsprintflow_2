@@ -35,6 +35,11 @@ function input(value, posQuantityMax = null) {
   return {
     value,
     dataset: posQuantityMax ? { posQuantityMax: String(posQuantityMax) } : {},
+    getAttribute(name) {
+      return posQuantityMax && name === 'data-pos-quantity-max' ? String(posQuantityMax) : null;
+    },
+    selectionStart: String(value).length,
+    selectionEnd: String(value).length,
     validityMessage: '',
     classList: { contains() { return true; } },
     matches(selector) {
@@ -78,8 +83,8 @@ function pasteEvent(text, target) {
   };
 }
 
-for (const value of ['1', '5', '20', '50', '100', '150', '500', '999', '1000000']) {
-  const field = input(value, 1000000);
+for (const value of ['1', '5', '20', '50', '100', '150', '500', '999', '10000']) {
+  const field = input(value, 10000);
   assert.equal(context.quantityTest.validateQuantity(field), true, `manual value ${value} is accepted`);
   assert.equal(field.value, value, `manual value ${value} remains visible`);
   assert.equal(field.validityMessage, '', `manual value ${value} clears validation`);
@@ -93,20 +98,20 @@ replaced.value = '5';
 assert.equal(context.quantityTest.validateQuantity(replaced), true, 'typing after clearing works');
 assert.equal(replaced.value, '5', 'replacement value stays visible');
 
-for (const value of ['0', '00', '-1', '+1', '1.5', '1e3', 'h5tgj', '12abc', '12!', '1000001', '']) {
-  const field = input(value, 1000000);
+for (const value of ['0', '00', '-1', '+1', '1.5', '1e3', 'h5tgj', '12abc', '12!', '10001', '']) {
+  const field = input(value, 10000);
   assert.equal(context.quantityTest.validateQuantity(field), false, `invalid value ${JSON.stringify(value)} is rejected`);
   assert.equal(field.value, value, `invalid value ${JSON.stringify(value)} is not silently converted`);
   assert.ok(field.validityMessage, `invalid value ${JSON.stringify(value)} receives a validation message`);
 }
 
-for (const [raw] of [[''], ['0'], ['1000001']]) {
-  const field = input(raw, 1000000);
+for (const [raw] of [[''], ['0'], ['10001']]) {
+  const field = input(raw, 10000);
   assert.equal(context.quantityTest.validateQuantity(field, true), false, `blur does not coerce ${raw || 'blank'} into another quantity`);
   assert.equal(field.value, raw, `${raw || 'blank'} remains unchanged on commit`);
 }
 
-const invalidOnBlur = input('5e1', 1000000);
+const invalidOnBlur = input('5e1', 10000);
 assert.equal(context.quantityTest.validateQuantity(invalidOnBlur, true), false, 'scientific notation remains invalid on blur');
 assert.equal(invalidOnBlur.value, '5e1', 'invalid text is not coerced on blur');
 
@@ -143,38 +148,41 @@ assert.equal(pasteDecimal.prevented, true, 'paste rejects decimals');
 const pasteGood = pasteEvent('4', input(''));
 context.quantityTest.pfRejectNonDigitServiceQuantity(pasteGood);
 assert.equal(pasteGood.prevented, false, 'paste accepts a whole-number digit string');
-const pasteLargeValid = pasteEvent('999', input('', 1000000));
+const pasteLargeValid = pasteEvent('999', input('', 10000));
 context.quantityTest.pfRejectNonDigitServiceQuantity(pasteLargeValid);
 assert.equal(pasteLargeValid.prevented, false, 'paste accepts valid three-digit service quantities');
-const pasteTooLong = pasteEvent('10000000', input('', 1000000));
+const pasteTooLong = pasteEvent('10000000', input('', 10000));
 context.quantityTest.pfRejectNonDigitServiceQuantity(pasteTooLong);
-assert.equal(pasteTooLong.prevented, true, 'paste rejects quantities beyond the supported seven-digit range');
+assert.equal(pasteTooLong.prevented, true, 'paste rejects quantities beyond the 10,000 service cap');
 
-const boundary = input('100', 1000000);
+const boundary = input('100', 10000);
 const container = { querySelector() { return boundary; } };
 const button = { closest() { return container; }, parentElement: container };
 context.quantityTest.pfChangeQty(button, 1);
 assert.equal(boundary.value, '101', 'plus button increments beyond the old 100-item cap');
 context.quantityTest.pfChangeQty(button, -1);
 assert.equal(boundary.value, '100', 'minus button decrements and refreshes validation');
-const largeBoundary = input('999999', 1000000);
+const largeBoundary = input('9999', 10000);
 const largeContainer = { querySelector() { return largeBoundary; } };
 context.quantityTest.pfChangeQty({ closest() { return largeContainer; }, parentElement: largeContainer }, 1);
-assert.equal(largeBoundary.value, '1000000', 'plus control accepts the server maximum');
+assert.equal(largeBoundary.value, '10000', 'plus control accepts the service maximum');
 context.quantityTest.pfChangeQty({ closest() { return largeContainer; }, parentElement: largeContainer }, 1);
-assert.equal(largeBoundary.value, '1000000', 'plus control clamps at the server maximum');
-const fiveHundred = input('500', 1000000);
+assert.equal(largeBoundary.value, '10000', 'plus control clamps at the service maximum');
+const fiveHundred = input('500', 10000);
 const fiveHundredContainer = { querySelector() { return fiveHundred; } };
 const fiveHundredButton = { closest() { return fiveHundredContainer; }, parentElement: fiveHundredContainer };
 context.quantityTest.pfChangeQty(fiveHundredButton, 1);
 assert.equal(fiveHundred.value, '501', 'plus control increments a manually entered 500 quantity');
 context.quantityTest.pfChangeQty(fiveHundredButton, -1);
 assert.equal(fiveHundred.value, '500', 'minus control returns the value to 500 and refreshes the estimate');
-const nonPosBoundedField = input('101');
-assert.equal(context.quantityTest.validateQuantity(nonPosBoundedField), false, 'shared renderer retains its 100-item default outside the POS override');
+const overCapField = input('10001');
+assert.equal(context.quantityTest.validateQuantity(overCapField), false, 'shared renderer rejects above the 10,000 default cap');
+assert.match(overCapField.validityMessage, /Maximum quantity is 10,000\./, 'over-cap shows the maximum message');
+const withinCapField = input('101');
+assert.equal(context.quantityTest.validateQuantity(withinCapField), true, 'shared renderer accepts quantities within the 10,000 default cap');
 assert.ok(estimateCalls >= 7, 'valid edits and +/- controls recalculate the estimate');
 
-assert.match(renderer, /input type="text" inputmode="numeric"[^\n]*pattern="\[0-9\]\*" maxlength="3"[^\n]*pf-service-quantity-input/);
+assert.match(renderer, /input type="text" inputmode="numeric"[^\n]*pattern="\[0-9\]\*" maxlength="5"[^\n]*pf-service-quantity-input/);
 assert.doesNotMatch(renderer, /pf-service-quantity-input[^\n]*onkeydown=/, 'quantity field does not block select-all via inline onkeydown');
 assert.match(renderer, /addEventListener\('beforeinput',\s*pfRejectNonDigitServiceQuantity/, 'digit rejection is bound for dynamically rendered forms');
 assert.match(renderer, /addEventListener\('paste',\s*pfRejectNonDigitServiceQuantity/, 'paste rejection is bound for service quantity inputs');

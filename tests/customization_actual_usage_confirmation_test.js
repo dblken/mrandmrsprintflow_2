@@ -43,7 +43,7 @@ assert.equal((page.match(/x-show="productionErrors\.material"/g) || []).length, 
 assert.match(page, /x-show="showProductionMaterialSectionError\(\)"/, 'Section material errors use the deduplicated renderer.');
 assert.match(
   page,
-  /template x-if="productionAssignmentSubmitAttempted === true && showPendingMaterialUsageError\(pm\)"[\s\S]{0,200}Enter a valid actual quantity before saving\./,
+  /template x-if="productionAssignmentSubmitAttempted === true && showPendingMaterialUsageError\(pm\)"[\s\S]{0,200}pendingMaterialUsageErrorMessage\(pm\)/,
   'Field-level Actual Usage validation copy is rendered once per material row.'
 );
 
@@ -64,6 +64,7 @@ function context(error, material = null) {
         },
         isValidPosMaterialQuantity: methods.isValidPosMaterialQuantity,
         normalizePosMaterialQuantity: methods.normalizePosMaterialQuantity,
+        posMaterialQuantityMaxExceeded: methods.posMaterialQuantityMaxExceeded,
         handlePendingMaterialQtyInput: methods.handlePendingMaterialQtyInput,
         clearPendingMaterialQtyPointerEdit: methods.clearPendingMaterialQtyPointerEdit,
         clearPendingMaterialConfirmationError: methods.clearPendingMaterialConfirmationError

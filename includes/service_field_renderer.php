@@ -789,7 +789,7 @@ function render_service_field($field_key, $config, $branches = [], $existing_dat
             $html .= '<div class="shopee-opt-group">';
             $html .= '<div class="quantity-container shopee-opt-btn" style="display: inline-flex; justify-content: space-between; gap: 1rem; width: 175px; cursor: default;">';
             $html .= '<button type="button" class="qty-btn-minus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, -1)">&minus;</button>';
-            $html .= '<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="3" autocomplete="off" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none; position: relative; z-index: 1; pointer-events: auto; user-select: text; cursor: text;" value="' . $saved_qty . '" aria-label="Quantity" onfocus="this.select()">';
+            $html .= '<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="5" autocomplete="off" id="' . htmlspecialchars($qty_id, ENT_QUOTES, 'UTF-8') . '" name="' . $qty_name . '" class="qty-input-field pf-service-quantity-input" data-pos-quantity-max="10000" style="border: none; text-align: center; width: 60px; font-size: 0.875rem; font-weight: 500; color: #374151; background: transparent; outline: none; position: relative; z-index: 1; pointer-events: auto; user-select: text; cursor: text;" value="' . $saved_qty . '" aria-label="Quantity" onfocus="this.select()">';
             $html .= '<button type="button" class="qty-btn-plus" style="background: none; border: none; color: #6b7280; font-size: 1.125rem; font-weight: 600; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;" onclick="window.pfChangeQty(this, 1)">+</button>';
             $html .= '</div>';
             $html .= '</div>';
@@ -1679,10 +1679,12 @@ function pfServiceQuantityInput(root) {
 }
 
 function pfServiceQuantityMax(input) {
-    const configured = Number(input && input.dataset ? input.dataset.posQuantityMax : 0);
-    return Number.isSafeInteger(configured) && configured >= 1
-        ? Math.min(configured, 1000000)
-        : 100;
+    const configured = Number(input && input.dataset
+        ? (input.dataset.posQuantityMax || input.getAttribute('data-pos-quantity-max') || 0)
+        : 0);
+    return Number.isFinite(configured) && configured >= 1
+        ? Math.min(Math.trunc(configured), 1000000)
+        : 10000;
 }
 
 function increaseQty() {
@@ -1708,9 +1710,15 @@ function pfServiceQuantityInvalidMessage(raw, input) {
         return 'Enter a positive whole number.';
     }
     const max = pfServiceQuantityMax(input);
-    return max === 1000000
-        ? 'Enter a whole number from 1 to 1,000,000.'
-        : 'Enter a whole number from 1 to 100.';
+    const parsed = Number(String(raw).replace(/^0+/, '') || '0');
+    if (Number.isSafeInteger(parsed) && parsed > max) {
+        return max <= 10000 ? 'Maximum quantity is 10,000.' : 'Enter a whole number from 1 to 1,000,000.';
+    }
+    return max <= 10000
+        ? 'Enter a positive whole number.'
+        : (max === 1000000
+            ? 'Enter a whole number from 1 to 1,000,000.'
+            : 'Enter a whole number from 1 to 100.');
 }
 
 function validateQuantity(input, commit = false) {
@@ -1749,11 +1757,26 @@ function pfRejectNonDigitServiceQuantity(event) {
         }
     };
 
+    const max = pfServiceQuantityMax(input);
+    const maxMessage = max <= 10000 ? 'Maximum quantity is 10,000.' : 'Enter a positive whole number.';
+    const wouldExceedMax = (nextRaw) => {
+        const digits = String(nextRaw).replace(/^0+/, '') || '0';
+        const parsed = Number(digits);
+        return Number.isFinite(parsed) && parsed > max;
+    };
+
     if (event.type === 'keydown') {
         if (event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) return;
         if (!/^[0-9]$/.test(event.key)) {
             event.preventDefault();
             markRejected();
+            return;
+        }
+        const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+        const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
+        if (wouldExceedMax(input.value.slice(0, start) + event.key + input.value.slice(end))) {
+            event.preventDefault();
+            input.setCustomValidity(maxMessage);
         }
         return;
     }
@@ -1762,6 +1785,16 @@ function pfRejectNonDigitServiceQuantity(event) {
         if (event.data != null && !/^[0-9]*$/.test(event.data)) {
             event.preventDefault();
             markRejected();
+            return;
+        }
+        if (event.inputType && event.inputType.startsWith('insert')) {
+            const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+            const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
+            const inserted = event.data == null ? '' : String(event.data);
+            if (wouldExceedMax(input.value.slice(0, start) + inserted + input.value.slice(end))) {
+                event.preventDefault();
+                input.setCustomValidity(maxMessage);
+            }
         }
         return;
     }
@@ -1770,9 +1803,9 @@ function pfRejectNonDigitServiceQuantity(event) {
         const pasted = event.clipboardData && typeof event.clipboardData.getData === 'function'
             ? event.clipboardData.getData('text')
             : '';
-        if (!/^[0-9]*$/.test(pasted) || pasted.length > String(pfServiceQuantityMax(input)).length) {
+        if (!/^[0-9]*$/.test(pasted) || wouldExceedMax(pasted)) {
             event.preventDefault();
-            markRejected();
+            input.setCustomValidity(maxMessage);
         }
         return;
     }
@@ -1781,9 +1814,9 @@ function pfRejectNonDigitServiceQuantity(event) {
         const dropped = event.dataTransfer && typeof event.dataTransfer.getData === 'function'
             ? event.dataTransfer.getData('text')
             : '';
-        if (!/^[0-9]*$/.test(dropped) || dropped.length > String(pfServiceQuantityMax(input)).length) {
+        if (!/^[0-9]*$/.test(dropped) || wouldExceedMax(dropped)) {
             event.preventDefault();
-            markRejected();
+            input.setCustomValidity(maxMessage);
         }
     }
 }

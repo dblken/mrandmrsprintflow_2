@@ -3359,7 +3359,7 @@ $online_closed_count = 0;
                                                         <div x-show="pm.dimension_fit_error" x-text="pm.dimension_fit_error" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
                                                         <!-- Actual Usage message mounts only after Confirm Set Price (x-if, not x-show). -->
                                                         <template x-if="productionAssignmentSubmitAttempted === true && showPendingMaterialUsageError(pm)">
-                                                            <div style="margin-top:5px;color:#b45309;font-weight:700;">Enter a valid actual quantity before saving.</div>
+                                                            <div style="margin-top:5px;color:#b45309;font-weight:700;" x-text="pendingMaterialUsageErrorMessage(pm)"></div>
                                                         </template>
                                                         <div x-show="pendingMaterialStockError(pm)" x-text="pendingMaterialStockError(pm)" role="alert" style="margin-top:5px;color:#b91c1c;font-weight:700;"></div>
                                                     </div>
@@ -4589,8 +4589,25 @@ window.pfServiceFieldCatalog = (() => {
                 delete input.dataset.actualUsagePointerQty;
                 delete input.dataset.actualUsagePointerEditAt;
             },
+            posMaterialQuantityMaxExceeded(raw) {
+                const max = window.PrintFlowMaterialConsumption?.MAX_MATERIAL_QUANTITY ?? 10000;
+                const numeric = Number(String(raw ?? '').replace(/,/g, '').trim());
+                return Number.isFinite(numeric) && numeric > max;
+            },
+            pendingMaterialUsageErrorMessage(material) {
+                const raw = String(material?.qty ?? '').trim();
+                if (raw !== '' && this.posMaterialQuantityMaxExceeded(raw)) {
+                    return window.PrintFlowMaterialConsumption?.MAX_MATERIAL_QUANTITY_MESSAGE || 'Maximum quantity is 10,000.';
+                }
+                return 'Enter a valid actual quantity before saving.';
+            },
             handlePendingMaterialQtyInput(material, value, input = null, event = null) {
                 const raw = String(value ?? '').trim();
+                if (raw !== '' && this.posMaterialQuantityMaxExceeded(raw)) {
+                    if (input) input.value = material.qty === '' || material.qty == null ? '' : String(material.qty);
+                    material.manual_quantity_confirmed = false;
+                    return;
+                }
                 const normalizedQty = raw === '' ? null : this.normalizePosMaterialQuantity(raw, material.item_id);
                 const dataset = input?.dataset || {};
                 const trustedInput = event?.isTrusted === true;
@@ -4672,7 +4689,9 @@ window.pfServiceFieldCatalog = (() => {
             showProductionMaterialSectionError() {
                 const message = String(this.productionErrors?.material || '').trim();
                 if (!message) return false;
-                if (message !== 'Enter a valid actual quantity before saving.') return true;
+                const fieldDelegated = message === 'Enter a valid actual quantity before saving.'
+                    || message === 'Maximum quantity is 10,000.';
+                if (!fieldDelegated) return true;
                 if (this.productionAssignmentSubmitAttempted !== true) return true;
                 const rows = [...(this.pendingMaterials || [])];
                 if (rows.some((row) => row && this.showPendingMaterialUsageError(row))) return false;
@@ -4854,8 +4873,11 @@ window.pfServiceFieldCatalog = (() => {
                 if (!this.isPosSetPriceFlow()) return '';
                 for (const material of materials) {
                     const itemId = material && material.item_id;
-                    const amount = Number(material && (material.qty ?? material.quantity));
-                    if (!this.isValidPosMaterialQuantity(amount, itemId)) {
+                    const raw = String((material && (material.qty ?? material.quantity)) ?? '').trim();
+                    if (raw !== '' && this.posMaterialQuantityMaxExceeded(raw)) {
+                        return window.PrintFlowMaterialConsumption?.MAX_MATERIAL_QUANTITY_MESSAGE || 'Maximum quantity is 10,000.';
+                    }
+                    if (!this.isValidPosMaterialQuantity(raw, itemId)) {
                         // Single post-submit field copy — not the former red banner text.
                         return 'Enter a valid actual quantity before saving.';
                     }

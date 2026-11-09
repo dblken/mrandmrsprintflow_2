@@ -139,8 +139,14 @@ if (!function_exists('printflow_calculate_service_line_pricing')) {
      */
     function printflow_calculate_service_line_pricing(int $serviceId, array $customization, int $quantity, ?array $fieldConfigs = null): array
     {
-        if ($quantity < 1 || $quantity > 1000000) {
-            return ['ok' => false, 'unit_price' => 0.0, 'unit_price_cents' => 0, 'design_fee' => 0.0, 'design_fee_cents' => 0, 'quantity' => $quantity, 'line_subtotal' => 0.0, 'line_subtotal_cents' => 0, 'line_total' => 0.0, 'line_total_cents' => 0, 'layout_mode' => '', 'message' => 'Quantity must be between 1 and 1,000,000.'];
+        $maxServiceQty = defined('PRINTFLOW_POS_MAX_SERVICE_ORDER_QUANTITY')
+            ? (int)PRINTFLOW_POS_MAX_SERVICE_ORDER_QUANTITY
+            : 10000;
+        if ($quantity < 1 || $quantity > $maxServiceQty) {
+            $maxMessage = function_exists('printflow_pos_quantity_max_exceeded_message')
+                ? printflow_pos_quantity_max_exceeded_message()
+                : 'Maximum quantity is 10,000.';
+            return ['ok' => false, 'unit_price' => 0.0, 'unit_price_cents' => 0, 'design_fee' => 0.0, 'design_fee_cents' => 0, 'quantity' => $quantity, 'line_subtotal' => 0.0, 'line_subtotal_cents' => 0, 'line_total' => 0.0, 'line_total_cents' => 0, 'layout_mode' => '', 'message' => $quantity > $maxServiceQty ? $maxMessage : 'Quantity must be between 1 and ' . number_format($maxServiceQty) . '.'];
         }
         if ($fieldConfigs === null) {
             if (!function_exists('get_service_field_config')) require_once __DIR__ . '/service_field_config_helper.php';

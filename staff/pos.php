@@ -5080,20 +5080,32 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             return showPOSConfirm('Estimated Price', POS_MISSING_ESTIMATE_MESSAGE, 'Continue', 'warning');
         }
 
-        function posReadPositiveWholeQuantity(value) {
+        const POS_MAX_SERVICE_ORDER_QUANTITY = 10000;
+        const POS_MAX_QUANTITY_MESSAGE = 'Maximum quantity is 10,000.';
+
+        function posReadPositiveWholeQuantity(value, maxQuantity = 1000000) {
             const raw = String(value ?? '');
             if (!/^[0-9]{1,64}$/.test(raw)) return null;
             const canonical = raw.replace(/^0+/, '');
-            if (canonical === '' || canonical.length > 7) return null;
+            if (canonical === '' || canonical.length > String(maxQuantity).length) return null;
             const parsed = Number(canonical);
-            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 1000000 ? parsed : null;
+            return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= maxQuantity ? parsed : null;
+        }
+
+        function posServiceOrderQuantityInvalidMessage(value) {
+            const raw = String(value ?? '').trim();
+            if (raw === '' || !/^[0-9]+$/.test(raw)) return 'Enter a positive whole number.';
+            const canonical = raw.replace(/^0+/, '') || '0';
+            const parsed = Number(canonical);
+            if (Number.isSafeInteger(parsed) && parsed > POS_MAX_SERVICE_ORDER_QUANTITY) {
+                return POS_MAX_QUANTITY_MESSAGE;
+            }
+            return 'Enter a positive whole number.';
         }
 
         /** Service-order modal quantity: positive whole numbers only, matching the server cart limit. */
         function posReadServiceOrderQuantity(value) {
-            const parsed = posReadPositiveWholeQuantity(value);
-            if (parsed === null) return null;
-            return parsed;
+            return posReadPositiveWholeQuantity(value, POS_MAX_SERVICE_ORDER_QUANTITY);
         }
 
         function applyServicePricingToCustomization(customization, unitPrice, quantity, designFee) {
@@ -6015,13 +6027,14 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             const requestVersion = ++posServiceStockRequestVersion;
             const input = posServiceQuantityInput();
             const qty = posReadServiceOrderQuantity(quantityRaw);
-            if (input) input.setCustomValidity(qty === null ? 'Enter a positive whole number.' : '');
+            const qtyMessage = qty === null ? posServiceOrderQuantityInvalidMessage(quantityRaw) : '';
+            if (input) input.setCustomValidity(qtyMessage);
             if (qty === null) {
                 const qtyRow = input ? input.closest('.shopee-form-row') : null;
-                if (qtyRow) markServiceFieldInvalid(qtyRow, 'Enter a positive whole number.');
+                if (qtyRow) markServiceFieldInvalid(qtyRow, qtyMessage);
                 else if (input) input.classList.add('field-invalid');
-                posSetServiceStockState(true, '', 'Enter a positive whole number.');
-                return { valid: false, message: 'Enter a positive whole number.' };
+                posSetServiceStockState(true, '', qtyMessage);
+                return { valid: false, message: qtyMessage };
             }
             if (input) {
                 input.classList.remove('field-invalid');
@@ -6382,10 +6395,10 @@ if (session_status() === PHP_SESSION_ACTIVE) {
             if (input) {
                 input.min = '1';
                 input.step = '1';
-                input.dataset.posQuantityMax = '1000000';
+                input.dataset.posQuantityMax = String(POS_MAX_SERVICE_ORDER_QUANTITY);
                 input.setAttribute('inputmode', 'numeric');
                 input.setAttribute('pattern', '[0-9]*');
-                input.setAttribute('maxlength', '7');
+                input.setAttribute('maxlength', String(POS_MAX_SERVICE_ORDER_QUANTITY).length);
                 input.setAttribute('autocomplete', 'off');
                 if (!input.classList.contains('pf-service-quantity-input')) {
                     input.classList.add('pf-service-quantity-input');

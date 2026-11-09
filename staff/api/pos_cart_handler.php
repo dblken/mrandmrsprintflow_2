@@ -129,10 +129,12 @@ function pos_cart_effective_product_stock(int $productId, int $branchId): int
     return (int)$effectiveStock;
 }
 
-function pos_cart_parse_positive_quantity($value): int
+function pos_cart_parse_positive_quantity($value, bool $isService = false): int
 {
     try {
-        return printflow_pos_parse_cart_quantity($value);
+        return $isService
+            ? printflow_pos_parse_service_order_quantity($value)
+            : printflow_pos_parse_cart_quantity($value);
     } catch (InvalidArgumentException $error) {
         throw new Exception($error->getMessage());
     }
@@ -405,7 +407,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         ] as $key => [$label, $type]) {
             $value = $key === 'quantity' ? (string)$qty : pos_cart_custom_value($customization, $key, $label);
             if ($key === 'quantity') {
-                try { printflow_pos_parse_cart_quantity($value); }
+                try { printflow_pos_parse_service_order_quantity($value); }
                 catch (InvalidArgumentException $error) { $errors[$key] = $error->getMessage(); }
             } elseif ($value === '') {
                 $errors[$key] = pos_cart_required_message($key, $label, $type);
@@ -444,7 +446,7 @@ function pos_cart_validate_service_payload(int $serviceId, array $customization,
         } elseif ($type === 'date' && $value !== '' && pos_cart_is_needed_date_field((string)$fieldKey, $label) && !pos_cart_date_value_not_before_today($value)) {
             $errors[(string)$fieldKey] = 'Needed date cannot be in the past.';
         } elseif ($type === 'quantity') {
-            try { printflow_pos_parse_cart_quantity($value !== '' ? $value : $qty); }
+            try { printflow_pos_parse_service_order_quantity($value !== '' ? $value : $qty); }
             catch (InvalidArgumentException $error) { $errors[(string)$fieldKey] = $error->getMessage(); }
         } elseif ($type === 'file') {
             $designMode = service_order_design_input_mode_from_customization($customization, (string) $fieldKey);
@@ -536,13 +538,13 @@ try {
                 throw new Exception('Product ID is required.');
             }
             $product_id = (int)$data['product_id'];
-            $qty = pos_cart_parse_positive_quantity(array_key_exists('qty', $data) ? $data['qty'] : 1);
+            $is_service = !empty($data['is_service']);
+            $qty = pos_cart_parse_positive_quantity(array_key_exists('qty', $data) ? $data['qty'] : 1, $is_service);
             
             $price = isset($data['price']) ? (float)$data['price'] : null;
             $name = $data['name'] ?? null;
             $customization = $data['customization'] ?? null;
             $custom_json = $customization ? json_encode($customization) : null;
-            $is_service = !empty($data['is_service']);
             $pos_branch_id = pos_cart_branch_id();
 
             if ($is_service) {
@@ -741,7 +743,7 @@ try {
 
         case 'validate_service_stock':
             $serviceId = (int)($data['service_id'] ?? $data['product_id'] ?? 0);
-            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null);
+            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null, true);
             $customization = is_array($data['customization'] ?? null) ? $data['customization'] : [];
             if ($serviceId > 0 && empty($customization['service_id'])) {
                 $customization['service_id'] = $serviceId;
@@ -789,10 +791,10 @@ try {
             if ($index < 0 || !isset($_SESSION['pos_cart'][$index])) {
                 throw new Exception('Invalid cart item.');
             }
-            $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null);
             {
                 $item = &$_SESSION['pos_cart'][$index];
                 $isServiceItem = pos_cart_item_is_service($item);
+                $qty = pos_cart_parse_positive_quantity($data['qty'] ?? null, $isServiceItem);
                 $item['is_service'] = $isServiceItem;
                 $previousQty = (int)($item['qty'] ?? 0);
                 if (!$isServiceItem) {

@@ -115,6 +115,10 @@ function baseCtx(overrides = {}) {
       return !!(inv && materialConsumption.parseMaterialQuantity(value, inv) !== null);
     },
     getMaterialRequiredStock(_id, qty) { return Number(qty) || 0; },
+    posMaterialQuantityMaxExceeded(raw) {
+      const numeric = Number(String(raw ?? '').replace(/,/g, '').trim());
+      return Number.isFinite(numeric) && numeric > materialConsumption.MAX_MATERIAL_QUANTITY;
+    },
     ...overrides,
   };
 }

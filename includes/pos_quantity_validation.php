@@ -5,6 +5,16 @@ if (!defined('PRINTFLOW_POS_MAX_MATERIAL_QUANTITY')) {
     define('PRINTFLOW_POS_MAX_MATERIAL_QUANTITY', 10000.0);
 }
 
+/** POS service-order modal quantity cap (whole units only). */
+if (!defined('PRINTFLOW_POS_MAX_SERVICE_ORDER_QUANTITY')) {
+    define('PRINTFLOW_POS_MAX_SERVICE_ORDER_QUANTITY', (int)PRINTFLOW_POS_MAX_MATERIAL_QUANTITY);
+}
+
+function printflow_pos_quantity_max_exceeded_message(): string
+{
+    return 'Maximum quantity is 10,000.';
+}
+
 /** General positive whole-number validation for measured material quantities. */
 function printflow_pos_parse_positive_quantity($value): int
 {
@@ -61,7 +71,7 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
         }
         $quantity = (float)printflow_pos_parse_positive_quantity($value);
         if ($quantity > PRINTFLOW_POS_MAX_MATERIAL_QUANTITY) {
-            throw new InvalidArgumentException('Material quantity cannot exceed 10,000 in its inventory unit.');
+            throw new InvalidArgumentException(printflow_pos_quantity_max_exceeded_message());
         }
         return $quantity;
     }
@@ -81,8 +91,37 @@ function printflow_pos_parse_positive_material_quantity($value, array $item): fl
         throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
     }
     $quantity = (float)$raw;
-    if (!is_finite($quantity) || $quantity <= 0 || $quantity > PRINTFLOW_POS_MAX_MATERIAL_QUANTITY) {
+    if (!is_finite($quantity) || $quantity <= 0) {
         throw new InvalidArgumentException('Material quantity must be a positive amount in its inventory unit with at most two decimal places.');
+    }
+    if ($quantity > PRINTFLOW_POS_MAX_MATERIAL_QUANTITY) {
+        throw new InvalidArgumentException(printflow_pos_quantity_max_exceeded_message());
+    }
+    return $quantity;
+}
+
+/**
+ * Strict whole-number parser for POS service-order modals and service cart lines.
+ */
+function printflow_pos_parse_service_order_quantity($value): int
+{
+    if (!is_int($value) && !is_string($value)) {
+        throw new InvalidArgumentException('Quantity must be a whole number from 1 to 10,000 using digits 0–9 only.');
+    }
+    $raw = (string)$value;
+    if ($raw === '' || strlen($raw) > 64 || !preg_match('/\A[0-9]+\z/', $raw)) {
+        throw new InvalidArgumentException('Quantity must be a whole number from 1 to 10,000 using digits 0–9 only.');
+    }
+    $canonical = ltrim($raw, '0');
+    if ($canonical === '' || strlen($canonical) > 5) {
+        throw new InvalidArgumentException(printflow_pos_quantity_max_exceeded_message());
+    }
+    $quantity = (int)$canonical;
+    if ($quantity < 1) {
+        throw new InvalidArgumentException('Quantity must be a whole number from 1 to 10,000 using digits 0–9 only.');
+    }
+    if ($quantity > PRINTFLOW_POS_MAX_SERVICE_ORDER_QUANTITY) {
+        throw new InvalidArgumentException(printflow_pos_quantity_max_exceeded_message());
     }
     return $quantity;
 }

@@ -29,7 +29,7 @@ assert.doesNotMatch(
   'quantity validation must not use parseInt which accepts 12abc as 12'
 );
 assert.match(pos, /throw new Error\('Enter a positive whole number\.'\)/, 'pricing helper refuses to invent a quantity');
-const parserStart = pos.indexOf('function posReadPositiveWholeQuantity(value) {');
+const parserStart = pos.indexOf('const POS_MAX_SERVICE_ORDER_QUANTITY = 10000;');
 const parserEnd = pos.indexOf('\n        function applyServicePricingToCustomization', parserStart);
 assert.ok(parserStart >= 0 && parserEnd > parserStart, 'shared POS service quantity parser can be exercised');
 const parserContext = { Number, String, Math };
@@ -37,12 +37,13 @@ vm.runInNewContext(pos.slice(parserStart, parserEnd) + '\nglobalThis.quantityPar
 for (const value of ['150', '500', '999']) {
   assert.equal(parserContext.quantityParsers.posReadServiceOrderQuantity(value), Number(value), `modal accepts valid quantity ${value}`);
 }
-for (const value of ['', '0', '-1', '1.5', 'abc', '12abc', '1000001']) {
+for (const value of ['', '0', '-1', '1.5', 'abc', '12abc', '10001', '10000000']) {
   assert.equal(parserContext.quantityParsers.posReadServiceOrderQuantity(value), null, `modal rejects invalid quantity ${JSON.stringify(value)}`);
 }
+assert.equal(parserContext.quantityParsers.posReadServiceOrderQuantity('10000'), 10000, 'modal accepts the 10,000 service cap');
 assert.match(pos, /posValidateServiceStockNow\(serviceId, quantity \? quantity\.value : ''\)/, 'manual and button quantity edits retain service stock revalidation');
-assert.match(pos, /input\.dataset\.posQuantityMax = '1000000'/, 'POS explicitly opts into the existing server maximum without changing other shared renderer users');
-assert.match(pos, /input\.setAttribute\('maxlength', '7'\)/, 'POS service input can accept up to the server-supported digit count');
+assert.match(pos, /input\.dataset\.posQuantityMax = String\(POS_MAX_SERVICE_ORDER_QUANTITY\)/, 'POS binds the 10,000 service cap into modal quantity inputs');
+assert.match(pos, /Maximum quantity is 10,000\./, 'POS service modal reports the shared maximum-quantity message');
 assert.match(fieldsEndpoint, /id="quantity-input"[^>]*onfocus="this\.select\(\)"/, 'Mugs and other endpoint-rendered service quantity selects its current value on focus');
 assert.match(fieldsEndpoint, /pointer-events:auto;user-select:text;cursor:text;/, 'endpoint quantity input remains directly interactive');
 assert.match(fieldRenderer, /aria-label="Quantity" onfocus="this\.select\(\)"/, 'shared service quantity renderer selects its current value on focus');
@@ -55,7 +56,9 @@ assert.match(cartHandler, /case 'validate_service_stock':[\s\S]*pos_cart_parse_p
 assert.match(cartHandler, /case 'add':[\s\S]*pos_cart_parse_positive_quantity\(/, 'add rejects invalid qty server-side');
 assert.match(pos, /qty: priced\.quantity,/, 'the manually entered validated quantity is submitted unchanged');
 assert.match(quantityPhp, /function printflow_pos_parse_cart_quantity/, 'shared cart quantity parser exists');
-assert.match(quantityPhp, /\$quantity > 1000000/, 'server cart parser uses the shared one-million maximum');
+assert.match(quantityPhp, /function printflow_pos_parse_service_order_quantity/, 'server exposes the 10,000 service-order parser');
+assert.match(quantityPhp, /PRINTFLOW_POS_MAX_SERVICE_ORDER_QUANTITY/, 'server service cap constant exists');
+assert.match(cartHandler, /printflow_pos_parse_service_order_quantity/, 'cart handler validates service lines separately from products');
 
 const php = spawnSync(process.env.PHP_BINARY || 'php', [
   '-r',

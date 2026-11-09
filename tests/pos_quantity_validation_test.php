@@ -36,14 +36,6 @@ if (printflow_pos_parse_positive_material_quantity('0.25', $measuredFt) !== 0.25
     || printflow_pos_parse_positive_material_quantity('1.00', $measuredFt) !== 1.0) {
     throw new RuntimeException('Staff-entered inventory-unit quantities must preserve valid fractions and whole-unit values.');
 }
-foreach ([['pcs', 'by_length'], ['sheet', 'per_piece'], ['unit', 'manual']] as [$uom, $method]) {
-    try {
-        printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => $uom, 'consumption_method' => $method]);
-    } catch (InvalidArgumentException $error) {
-        continue;
-    }
-    throw new RuntimeException('A fractional material quantity was accepted for a discrete inventory unit.');
-}
 foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '10001', '100000000.00', '20000000'] as $invalid) {
     try {
         printflow_pos_parse_positive_material_quantity($invalid, $measuredFt);
@@ -52,16 +44,54 @@ foreach (['0', '-0.25', '0.001', '1.234', '1e-1', '10001', '100000000.00', '2000
     }
     throw new RuntimeException('An invalid measured material quantity was accepted: ' . $invalid);
 }
+foreach ([['pcs', 'by_length'], ['sheet', 'per_piece'], ['unit', 'manual']] as [$uom, $method]) {
+    try {
+        printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => $uom, 'consumption_method' => $method]);
+    } catch (InvalidArgumentException $error) {
+        continue;
+    }
+    throw new RuntimeException('A fractional material quantity was accepted for a discrete inventory unit.');
+}
 if (printflow_pos_parse_positive_material_quantity('10000', ['unit_of_measure' => 'sheet', 'consumption_method' => 'per_piece']) !== 10000.0) {
     throw new RuntimeException('Measured material quantity at the 10,000 cap was rejected.');
 }
-$wholeRangeRejected = false;
 try {
     printflow_pos_parse_positive_material_quantity('10001', ['unit_of_measure' => 'pcs', 'consumption_method' => 'per_piece']);
 } catch (InvalidArgumentException $error) {
-    $wholeRangeRejected = true;
+    if ($error->getMessage() !== printflow_pos_quantity_max_exceeded_message()) {
+        throw new RuntimeException('Material quantity above cap must use the maximum-quantity message.');
+    }
+} catch (Throwable $error) {
+    throw new RuntimeException('Material quantity above the 10,000 Actual Usage cap was accepted.');
 }
-if (!$wholeRangeRejected) throw new RuntimeException('Material quantity above the 10,000 Actual Usage cap was accepted.');
+
+foreach (['10000', '500', '1'] as $serviceOk) {
+    if (printflow_pos_parse_service_order_quantity($serviceOk) !== (int)$serviceOk) {
+        throw new RuntimeException('Valid service order quantity was rejected.');
+    }
+}
+foreach (['10001', '10000000'] as $serviceBad) {
+    try {
+        printflow_pos_parse_service_order_quantity($serviceBad);
+    } catch (InvalidArgumentException $error) {
+        if ($error->getMessage() !== printflow_pos_quantity_max_exceeded_message()) {
+            throw new RuntimeException('Service order over-limit must use the maximum-quantity message.');
+        }
+        continue;
+    }
+    throw new RuntimeException('Service order quantity above 10,000 was accepted: ' . $serviceBad);
+}
+
+if (printflow_pos_parse_cart_quantity('1000000') !== 1000000) {
+    throw new RuntimeException('Product cart quantity at 1,000,000 must remain valid.');
+}
+try {
+    printflow_pos_parse_cart_quantity('1000001');
+} catch (InvalidArgumentException $error) {
+    // expected product cap
+} catch (Throwable $error) {
+    throw new RuntimeException('Product cart cap regression.');
+}
 if (printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'ft', 'consumption_method' => 'per_piece']) !== 0.25
     || printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'm', 'consumption_method' => 'by_area']) !== 0.25
     || printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' => 'l', 'consumption_method' => 'dimension_sheet']) !== 0.25) {
@@ -71,7 +101,7 @@ if (printflow_pos_parse_positive_material_quantity('0.25', ['unit_of_measure' =>
 $cartValid = ['1' => 1, '999' => 999, '1000' => 1000, '999999' => 999999, '1000000' => 1000000, '0001' => 1, '0001000000' => 1000000, 1000000 => 1000000];
 foreach ($cartValid as $input => $expected) {
     if (printflow_pos_parse_cart_quantity($input) !== $expected) {
-        throw new RuntimeException('A valid cart quantity was rejected or changed.');
+        throw new RuntimeException('A valid product cart quantity was rejected or changed.');
     }
 }
 foreach (['', ' ', ' 2 ', "2\n", '0', '000', '-1', '+1', '1.5', '1e3', '1E3', 'abc', '12abc', '1000001', '999999999999999999999999', 1.5, null, true, [], (object)['qty' => 1]] as $input) {
@@ -80,7 +110,7 @@ foreach (['', ' ', ' 2 ', "2\n", '0', '000', '-1', '+1', '1.5', '1e3', '1E3', 'a
     } catch (InvalidArgumentException $error) {
         continue;
     }
-    throw new RuntimeException('Invalid quantity was accepted: ' . var_export($input, true));
+    throw new RuntimeException('Invalid product cart quantity was accepted: ' . var_export($input, true));
 }
 
 echo "POS quantity validation tests passed.\n";
@@ -113,9 +143,9 @@ foreach (['', '0', '0.00', '-100', '-0.01', 'abc', '200.999', '200.000', '100000
 echo "POS final price validation tests passed.\n";
 
 if (strpos($cartApi, "array_key_exists('qty', \$data) ? \$data['qty'] : 1") === false
-    || strpos($cartApi, 'return printflow_pos_parse_cart_quantity($value)') === false
-    || strpos($checkoutApi, 'return printflow_pos_parse_cart_quantity($value)') === false) {
-    throw new RuntimeException('Cart add/update and checkout must validate raw quantity values through the shared strict parser.');
+    || strpos($cartApi, 'printflow_pos_parse_service_order_quantity') === false
+    || strpos($checkoutApi, 'printflow_pos_parse_service_order_quantity') === false) {
+    throw new RuntimeException('Cart and checkout must validate service quantities through the 10,000 service parser.');
 }
 
 echo "POS cart and checkout raw quantity validation contracts passed.\n";

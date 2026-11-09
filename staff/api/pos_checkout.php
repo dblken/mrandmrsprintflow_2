@@ -37,12 +37,19 @@ function pos_checkout_staff_facing_material_error(string $message, array $items)
     return $message;
 }
 
-function pos_checkout_parse_positive_quantity($value): int {
+function pos_checkout_parse_positive_quantity($value, bool $isService = false): int {
     try {
-        return printflow_pos_parse_cart_quantity($value);
+        return $isService
+            ? printflow_pos_parse_service_order_quantity($value)
+            : printflow_pos_parse_cart_quantity($value);
     } catch (InvalidArgumentException $error) {
         throw new RuntimeException($error->getMessage());
     }
+}
+
+function pos_checkout_parse_item_quantity($value, array $item): int
+{
+    return pos_checkout_parse_positive_quantity($value, pos_payload_item_is_service($item));
 }
 
 function pos_checkout_validate_assigned_service_materials(array $items, array $pendingOrders, array $sessionCart = []): ?string {
@@ -75,7 +82,7 @@ function pos_checkout_validate_assigned_service_materials(array $items, array $p
                 $pendingItemId = (int)($sessionLine['pending_order_item_id'] ?? 0);
             }
         }
-        $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+        $qty = pos_checkout_parse_item_quantity($item['qty'] ?? null);
         $stockError = printflow_pos_checkout_evaluate_pending_material_stock(
             $pendingOrderId,
             $pendingItemId,
@@ -449,8 +456,8 @@ function pos_checkout_pair_design_fee_lines(array &$items, array $sessionCart): 
         }
         if (count($matches) !== 1) return 'A service cart line could not be matched to its server-side pricing. Refresh the POS cart and try again.';
         $sessionItem = $matches[0];
-        $clientQty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
-        $sessionQty = pos_checkout_parse_positive_quantity($sessionItem['qty'] ?? null);
+        $clientQty = pos_checkout_parse_item_quantity($item['qty'] ?? null, $item);
+        $sessionQty = pos_checkout_parse_item_quantity($sessionItem['qty'] ?? null, $sessionItem);
         if ($clientQty !== $sessionQty || (int)($item['id'] ?? 0) !== (int)($sessionItem['product_id'] ?? 0)) {
             return 'A service quantity or identity changed. Refresh the POS cart and try again.';
         }
@@ -1044,7 +1051,7 @@ function pos_checkout_validate_service_item_prices(array &$items): ?string
         $customization = is_array($itemRow['customization'] ?? null) ? $itemRow['customization'] : [];
         $serviceId = (int)($customization['service_id'] ?? $itemRow['id'] ?? 0);
         try {
-            $qty = pos_checkout_parse_positive_quantity($itemRow['qty'] ?? null);
+            $qty = pos_checkout_parse_item_quantity($itemRow['qty'] ?? null);
         } catch (RuntimeException $quantityError) {
             return $quantityError->getMessage();
         }
@@ -1102,7 +1109,7 @@ function pos_checkout_group_total(array $groupItems, array $products_cache): flo
     $total = 0.0;
     foreach ($groupItems as $item) {
         $product_id = (int)($item['id'] ?? 0);
-        $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+        $qty = pos_checkout_parse_item_quantity($item['qty'] ?? null);
         $is_service = pos_payload_item_is_service((array)$item);
         $p = $products_cache[$product_id] ?? ['price' => (float)($item['price'] ?? 0)];
         $price = $is_service
@@ -1354,7 +1361,7 @@ if (isset($data['action']) && $data['action'] === 'create_pending_customization'
         exit;
     }
     try {
-        $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+        $qty = pos_checkout_parse_item_quantity($item['qty'] ?? null);
     } catch (RuntimeException $quantityError) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => $quantityError->getMessage()]);
@@ -1558,7 +1565,7 @@ if (!is_array($items) || $items === []) {
 foreach ($items as $itemIndex => $item) {
     try {
         if (!is_array($item)) throw new RuntimeException('Invalid cart item.');
-        $items[$itemIndex]['qty'] = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+        $items[$itemIndex]['qty'] = pos_checkout_parse_item_quantity($item['qty'] ?? null);
     } catch (RuntimeException $quantityError) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => $quantityError->getMessage()]);
@@ -1880,7 +1887,7 @@ $baseStockDemand = [];
 $optionStockDemand = [];
 foreach ($items as $itemIndex => $item) {
     $product_id = (int)$item['id'];
-    $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+    $qty = pos_checkout_parse_item_quantity($item['qty'] ?? null);
     $is_service_item = pos_payload_item_is_service((array)$item);
 
     if (!isset($products_cache[$product_id])) {
@@ -2097,7 +2104,7 @@ try {
         // Insert order items and update stock for this category-specific order.
         foreach ($groupItems as $item) {
         $product_id = (int)$item['id'];
-        $qty = pos_checkout_parse_positive_quantity($item['qty'] ?? null);
+        $qty = pos_checkout_parse_item_quantity($item['qty'] ?? null);
         $p = $products_cache[$product_id] ?? null;
         $prod_name = $p['name'] ?? 'Product';
 

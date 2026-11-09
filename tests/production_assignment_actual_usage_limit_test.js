@@ -9,6 +9,7 @@ const { parseMaterialQuantity, MAX_MATERIAL_QUANTITY } = materialConsumption;
 assert.equal(MAX_MATERIAL_QUANTITY, 10000, 'Shared client max material quantity is 10,000');
 assert.equal(parseMaterialQuantity('10000', sheetItem), 10000, '10,000 sheets is accepted');
 assert.equal(parseMaterialQuantity('10001', sheetItem), null, '10,001 sheets is rejected');
+assert.equal(materialConsumption.MAX_MATERIAL_QUANTITY_MESSAGE, 'Maximum quantity is 10,000.', 'Material usage shares the maximum-quantity message');
 assert.equal(parseMaterialQuantity('20000000', sheetItem), null, 'Absurd quantities are rejected');
 assert.equal(parseMaterialQuantity('340.0.00', { unit_of_measure: 'ft' }), null, 'Non-numeric punctuation rejects parse');
 
@@ -46,6 +47,11 @@ const ctx = {
 const harness = Object.assign(Object.create(methods), ctx);
 assert.equal(methods.showPendingMaterialUsageError.call(harness, row), true, 'Over-limit quantity shows the field error after submit');
 assert.equal(methods.showProductionMaterialSectionError.call(harness), false, 'Section banner is hidden when field-level copy is visible');
+const maxHarness = Object.assign(Object.create(methods), {
+  ...ctx,
+  productionErrors: { material: 'Maximum quantity is 10,000.' },
+});
+assert.equal(methods.showProductionMaterialSectionError.call(maxHarness), false, 'Maximum-quantity copy is not duplicated at section level');
 
 const stockHarness = Object.assign(Object.create(methods), {
   ...ctx,
